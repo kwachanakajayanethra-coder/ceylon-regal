@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ceylon Regal - Investment Manager (Cloud)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f4f8; }
+        :root {
+            --primary: #1a365d;
+            --primary-light: #2c5282;
+            --primary-dark: #0f2942;
+            --accent: #3182ce;
+            --white: #ffffff;
+            --gray-100: #f7fafc;
+            --gray-200: #edf2f7;
+            --gray-300: #e2e8f0;
+            --gray-600: #718096;
+            --gray-800: #2d3748;
+            --success: #38a169;
+            --warning: #d69e2e;
+            --danger: #e53e3e;
+        }
+        input, select { font-size: 14px; }
+        button { font-family: inherit; }
+        table { font-size: 14px; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        .cloud-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 3px 8px; border-radius: 10px; font-size: 10px; margin-left: 8px; }
+        .sync-indicator { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 4px 10px; border-radius: 15px; }
+        .sync-online { background: #c6f6d5; color: #276749; }
+        .sync-offline { background: #fed7d7; color: #c53030; }
+        .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(26,54,93,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; color: white; }
+        .spinner { width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.3); border-top-color: #ffd700; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script>
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBAuraY_LgiQc9Qia5jkdDmzrZ3sh_OxvM",
+            authDomain: "ceylonregal-7c5c7.firebaseapp.com",
+            databaseURL: "https://ceylonregal-7c5c7-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "ceylonregal-7c5c7",
+            storageBucket: "ceylonregal-7c5c7.firebasestorage.app",
+            messagingSenderId: "690880467411",
+            appId: "1:690880467411:web:066eac56457c9a61d59f26"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+    </script>
+    
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // ================== UTILITY FUNCTIONS ==================
+        const formatCurrency = (amount, currency) => `${currency} ${Number(amount).toLocaleString()}`;
+        const formatDate = (date) => date ? new Date(date).toISOString().split('T')[0] : '';
+        
+        const addMonths = (date, months) => {
+            const d = new Date(date);
+            d.setMonth(d.getMonth() + months);
+            return d;
+        };
+
+        const getDaysLeft = (date) => {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const targetDate = new Date(date);
+            targetDate.setHours(0, 0, 0, 0);
+            return Math.ceil((targetDate - today) / (1000 * 60 * 60 * 24));
+        };
+
+        const generatePayouts = (members, paidStatus = {}) => {
+            const payouts = [];
+            Object.values(members || {}).forEach(member => {
+                if (!member.depositDate) return;
+                for (let month = 1; month <= 12; month++) {
+                    const payoutDate = addMonths(new Date(member.depositDate), month);
+                    const daysLeft = getDaysLeft(payoutDate);
+                    const payoutKey = `${member.id}-${month}`;
+                    payouts.push({
+                        key: payoutKey,
+                        memberId: member.id,
+                        memberName: member.name,
+                        phone: member.phone,
+                        month: month,
+                        payoutDate: formatDate(payoutDate),
+                        amount: member.amount * member.returnPct / 100,
+                        currency: member.currency,
+                        status: paidStatus[payoutKey] || 'Pending',
+                        daysLeft: daysLeft,
+                        isUpcoming: daysLeft >= 0 && daysLeft <= 7,
+                        isOverdue: daysLeft < 0
+                    });
+                }
+            });
+            return payouts.sort((a, b) => a.daysLeft - b.daysLeft);
+        };
+
+        const generateMemberId = (members) => {
+            const memberArray = Object.values(members || {});
+            const maxId = memberArray.reduce((max, m) => {
+                const num = parseInt(m.id.replace('M', ''));
+                return num > max ? num : max;
+            }, 0);
+            return `M${String(maxId + 1).padStart(3, '0')}`;
+        };
+
+        // ================== MAIN APP ==================
+        const App = () => {
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [members, setMembers] = useState({});
+            const [paidStatus, setPaidStatus] = useState({});
+            const [payouts, setPayouts] = useState([]);
+            const [showModal, setShowModal] = useState(false);
+            const [editingMember, setEditingMember] = useState(null);
+            const [selectedMember, setSelectedMember] = useState(null);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [filterStatus, setFilterStatus] = useState('all');
+            const [isOnline, setIsOnline] = useState(true);
+            const [isLoading, setIsLoading] = useState(true);
+            const [lastSync, setLastSync] = useState(null);
+
+            // Firebase Real-time Listeners
+            useEffect(() => {
+                setIsLoading(true);
+                
+                // Listen for members changes
+                const membersRef = database.ref('members');
+                membersRef.on('value', (snapshot) => {
+                    const data = snapshot.val() || {};
+                    setMembers(data);
+                    setLastSync(new Date());
+                    setIsLoading(false);
+                });
+
+                // Listen for paid status changes
+                const paidRef = database.ref('paidStatus');
+                paidRef.on('value', (snapshot) => {
+                    const data = snapshot.val() || {};
+                    setPaidStatus(data);
+                });
+
+                // Connection state
+                const connectedRef = database.ref('.info/connected');
+                connectedRef.on('value', (snapshot) => {
+                    setIsOnline(snapshot.val() === true);
+                });
+
+                return () => {
+                    membersRef.off();
+                    paidRef.off();
+                    connectedRef.off();
+                };
+            }, []);
+
+            // Generate payouts when members or paid status changes
+            useEffect(() => {
+                setPayouts(generatePayouts(members, paidStatus));
+            }, [members, paidStatus]);
+
+            // Stats
+            const memberArray = Object.values(members || {});
+            const totalLKR = memberArray.filter(m => m.currency === 'LKR').reduce((sum, m) => sum + Number(m.amount || 0), 0);
+            const totalUSD = memberArray.filter(m => m.currency === 'USD').reduce((sum, m) => sum + Number(m.amount || 0), 0);
+            const upcomingPayouts = payouts.filter(p => p.isUpcoming && p.status === 'Pending');
+            const overduePayouts = payouts.filter(p => p.isOverdue && p.status === 'Pending');
+
+            // Member form
+            const [formData, setFormData] = useState({
+                name: '', phone: '', amount: '', currency: 'LKR', depositDate: '', returnPct: 20, status: 'Active', notes: ''
+            });
+
+            const openAddModal = () => {
+                setEditingMember(null);
+                setFormData({ name: '', phone: '', amount: '', currency: 'LKR', depositDate: '', returnPct: 20, status: 'Active', notes: '' });
+                setShowModal(true);
+            };
+
+            const openEditModal = (member) => {
+                setEditingMember(member);
+                setFormData({ ...member });
+                setShowModal(true);
+            };
+
+            const saveMember = () => {
+                if (!formData.name || !formData.amount || !formData.depositDate) {
+                    alert('Please fill Name, Amount and Deposit Date');
+                    return;
+                }
+                
+                if (editingMember) {
+                    // Update existing member
+                    database.ref(`members/${editingMember.id}`).update({
+                        ...formData,
+                        amount: Number(formData.amount)
+                    });
+                } else {
+                    // Add new member
+                    const newId = generateMemberId(members);
+                    database.ref(`members/${newId}`).set({
+                        ...formData,
+                        id: newId,
+                        amount: Number(formData.amount),
+                        createdAt: new Date().toISOString()
+                    });
+                }
+                setShowModal(false);
+            };
+
+            const deleteMember = (id) => {
+                if (confirm('Are you sure you want to delete this member?')) {
+                    database.ref(`members/${id}`).remove();
+                    // Also remove related paid status
+                    for (let month = 1; month <= 12; month++) {
+                        database.ref(`paidStatus/${id}-${month}`).remove();
+                    }
+                }
+            };
+
+            const togglePaidStatus = (payoutKey) => {
+                const currentStatus = paidStatus[payoutKey];
+                const newStatus = currentStatus === 'Paid' ? 'Pending' : 'Paid';
+                database.ref(`paidStatus/${payoutKey}`).set(newStatus);
+            };
+
+            const generateWhatsAppCard = (member) => {
+                if (!member) return '';
+                const monthlyReturn = member.amount * member.returnPct / 100;
+                let message = `DETAILS OF MR/MS ${member.name}\n\n`;
+                message += `DEPOSIT AMOUNT :${member.currency} ${Number(member.amount).toLocaleString()}\n`;
+                message += `MONTHLY RETURN PERCENTAGE:${member.returnPct}%\n`;
+                message += `MONTHLY RETURN AMOUNT :${member.currency} ${monthlyReturn.toLocaleString()}\n`;
+                message += `DEPOSIT DATE : ${member.depositDate}\n`;
+                message += `PACKAGE VALID MONTH'S : 12\n`;
+                message += `**********\n`;
+                message += `PAYOUT DATE.\n`;
+                
+                for (let i = 1; i <= 12; i++) {
+                    const payoutDate = addMonths(new Date(member.depositDate), i);
+                    const payoutKey = `${member.id}-${i}`;
+                    const isPaid = paidStatus[payoutKey] === 'Paid';
+                    message += `${String(i).padStart(2, '0')}) ${formatDate(payoutDate)} :${member.currency} ${monthlyReturn.toLocaleString()}${isPaid ? ' Paid*' : ''}\n`;
+                }
+                message += `\nTHANKS FOR JOIN US.`;
+                return message;
+            };
+
+            const copyToClipboard = (text) => {
+                navigator.clipboard.writeText(text);
+                alert('✅ Copied! Paste in WhatsApp.');
+            };
+
+            const exportData = () => {
+                const data = { members, paidStatus, exportDate: new Date().toISOString() };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `ceylon_regal_backup_${formatDate(new Date())}.json`;
+                a.click();
+                alert('✅ Backup downloaded!');
+            };
+
+            const importData = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const data = JSON.parse(e.target.result);
+                            if (data.members) {
+                                // Upload to Firebase
+                                database.ref('members').set(data.members);
+                            }
+                            if (data.paidStatus) {
+                                database.ref('paidStatus').set(data.paidStatus);
+                            }
+                            alert('✅ Data imported to cloud!');
+                        } catch (err) {
+                            alert('❌ Invalid file format');
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            };
+
+            // Filter payouts
+            const filteredPayouts = payouts.filter(p => {
+                const matchesSearch = p.memberName?.toLowerCase().includes(searchTerm.toLowerCase()) || p.memberId.toLowerCase().includes(searchTerm.toLowerCase());
+                if (filterStatus === 'upcoming') return matchesSearch && p.isUpcoming && p.status === 'Pending';
+                if (filterStatus === 'overdue') return matchesSearch && p.isOverdue && p.status === 'Pending';
+                if (filterStatus === 'paid') return matchesSearch && p.status === 'Paid';
+                if (filterStatus === 'pending') return matchesSearch && p.status === 'Pending';
+                return matchesSearch;
+            });
+
+            // Styles
+            const sidebarStyle = {
+                width: '220px', background: 'var(--primary)', color: 'var(--white)',
+                minHeight: '100vh', padding: '20px 0', position: 'fixed', left: 0, top: 0
+            };
+            const menuItemStyle = (isActive) => ({
+                padding: '14px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px',
+                background: isActive ? 'var(--primary-light)' : 'transparent',
+                borderLeft: isActive ? '4px solid #ffd700' : '4px solid transparent',
+                fontSize: '14px', transition: 'all 0.2s'
+            });
+            const cardStyle = {
+                background: 'var(--white)', borderRadius: '10px', padding: '20px',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
+            };
+            const btnPrimary = {
+                background: 'var(--primary)', color: 'white', border: 'none',
+                padding: '10px 20px', borderRadius: '5px', cursor: 'pointer', fontSize: '14px'
+            };
+            const inputStyle = {
+                padding: '10px 12px', border: '1px solid var(--gray-300)', borderRadius: '5px', width: '100%'
+            };
+
+            // Loading Screen
+            if (isLoading) {
+                return (
+                    <div className="loading-overlay">
+                        <div className="spinner"></div>
+                        <p style={{ marginTop: '20px', fontSize: '18px' }}>Connecting to Cloud...</p>
+                        <p style={{ marginTop: '10px', fontSize: '12px', opacity: 0.7 }}>Ceylon Regal Investment Manager</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div style={{ display: 'flex' }}>
+                    {/* Sidebar */}
+                    <div style={sidebarStyle}>
+                        <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--primary-light)', marginBottom: '15px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <i className="fas fa-crown" style={{ color: '#ffd700', fontSize: '20px' }}></i>
+                                <span style={{ fontSize: '18px', fontWeight: 'bold' }}>Ceylon Regal</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '8px' }}>
+                                <span className="cloud-badge"><i className="fas fa-cloud"></i> Cloud</span>
+                                <span className={`sync-indicator ${isOnline ? 'sync-online' : 'sync-offline'}`}>
+                                    <i className={`fas ${isOnline ? 'fa-check-circle' : 'fa-exclamation-circle'}`}></i>
+                                    {isOnline ? 'Online' : 'Offline'}
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div onClick={() => setActiveTab('dashboard')} style={menuItemStyle(activeTab === 'dashboard')}>
+                            <i className="fas fa-chart-pie"></i> Dashboard
+                        </div>
+                        <div onClick={() => setActiveTab('members')} style={menuItemStyle(activeTab === 'members')}>
+                            <i className="fas fa-users"></i> Members
+                        </div>
+                        <div onClick={() => setActiveTab('payouts')} style={menuItemStyle(activeTab === 'payouts')}>
+                            <i className="fas fa-calendar-check"></i> Payout Tracker
+                        </div>
+                        <div onClick={() => setActiveTab('card')} style={menuItemStyle(activeTab === 'card')}>
+                            <i className="fab fa-whatsapp"></i> WhatsApp Card
+                        </div>
+                        <div onClick={() => setActiveTab('settings')} style={menuItemStyle(activeTab === 'settings')}>
+                            <i className="fas fa-cog"></i> Backup / Restore
+                        </div>
+                    </div>
+
+                    {/* Main Content */}
+                    <div style={{ marginLeft: '220px', padding: '25px', width: 'calc(100% - 220px)', minHeight: '100vh' }}>
+                        
+                        {/* ================== DASHBOARD ================== */}
+                        {activeTab === 'dashboard' && (
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
+                                    <h2 style={{ color: 'var(--primary)' }}>📊 Dashboard</h2>
+                                    {lastSync && (
+                                        <span style={{ fontSize: '12px', color: 'var(--gray-600)' }}>
+                                            <i className="fas fa-sync"></i> Last sync: {lastSync.toLocaleTimeString()}
+                                        </span>
+                                    )}
+                                </div>
+                                
+                                {/* Stats */}
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '15px', marginBottom: '25px' }}>
+                                    {[
+                                        { label: 'Total Members', value: memberArray.length, color: 'var(--primary)', icon: 'fa-users' },
+                                        { label: 'Total LKR', value: `LKR ${totalLKR.toLocaleString()}`, color: 'var(--success)', icon: 'fa-money-bill' },
+                                        { label: 'Total USD', value: `USD ${totalUSD.toLocaleString()}`, color: 'var(--accent)', icon: 'fa-dollar-sign' },
+                                        { label: 'Upcoming (7 Days)', value: upcomingPayouts.length, color: 'var(--warning)', icon: 'fa-clock' },
+                                        { label: 'Overdue', value: overduePayouts.length, color: 'var(--danger)', icon: 'fa-exclamation-circle' },
+                                    ].map((stat, idx) => (
+                                        <div key={idx} style={{ ...cardStyle, borderLeft: `4px solid ${stat.color}` }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <div>
+                                                    <p style={{ color: 'var(--gray-600)', fontSize: '12px', marginBottom: '5px' }}>{stat.label}</p>
+                                                    <p style={{ fontSize: '22px', fontWeight: 'bold', color: stat.color }}>{stat.value}</p>
+                                                </div>
+                                                <i className={`fas ${stat.icon}`} style={{ fontSize: '24px', color: stat.color, opacity: 0.3 }}></i>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Upcoming */}
+                                <div style={{ ...cardStyle, marginBottom: '20px' }}>
+                                    <h3 style={{ color: 'var(--warning)', marginBottom: '15px', fontSize: '16px' }}>
+                                        <i className="fas fa-clock"></i> ⚠️ Upcoming Payouts (Next 7 Days)
+                                    </h3>
+                                    {upcomingPayouts.length === 0 ? (
+                                        <p style={{ color: 'var(--gray-600)', padding: '20px', textAlign: 'center' }}>✅ No upcoming payouts</p>
+                                    ) : (
+                                        <div style={{ overflowX: 'auto' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                                <thead>
+                                                    <tr style={{ background: '#fef3c7' }}>
+                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Member</th>
+                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Payout Date</th>
+                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Amount</th>
+                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Days</th>
+                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {upcomingPayouts.slice(0, 10).map((p, idx) => (
+                                                        <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)' }}>
+                                                            <td style={{ padding: '10px' }}><strong>{p.memberId}</strong> - {p.memberName}</td>
+                                                            <td style={{ padding: '10px' }}>{p.payoutDate}</td>
+                                                            <td style={{ padding: '10px', fontWeight: '600', color: 'var(--success)' }}>{formatCurrency(p.amount, p.currency)}</td>
+                                                            <td style={{ padding: '10px' }}>
+                                                                <span style={{ background: 'var(--warning)', color: 'white', padding: '2px 8px', borderRadius: '10px', fontSize: '11px' }}>
+                                                                    {p.daysLeft === 0 ? 'Today!' : `${p.daysLeft} days`}
+                                                                </span>
+                                                            </td>
+                                                            <td style={{ padding: '10px' }}>
+                                                                <button onClick={() => togglePaidStatus(p.key)} style={{ ...btnPrimary, background: 'var(--success)', padding: '5px 12px', fontSize: '12px' }}>
+                                                                    Mark Paid
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Overdue */}
+                                {overduePayouts.length > 0 && (
+                                    <div style={{ ...cardStyle, borderLeft: '4px solid var(--danger)' }}>
+                                        <h3 style={{ color: 'var(--danger)', marginBottom: '15px', fontSize: '16px' }}>
+                                            <i className="fas fa-exclamation-triangle"></i> 🚨 Overdue Payouts
+                                        </h3>
+                                        <div style={{ overflowX: 'auto' }}>
+                                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                                <thead>
+                                                    <tr style={{ background: '#fee2e2' }}>
+                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Member</th>
+                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Payout Date</th>
+                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Amount</th>
+                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Overdue</th>
+                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Action</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {overduePayouts.slice(0, 10).map((p, idx) => (
+                                                        <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)', background: '#fff5f5' }}>
+                                                            <td style={{ padding: '10px' }}><strong>{p.memberId}</strong> - {p.memberName}</td>
+                                                            <td style={{ padding: '10px' }}>{p.payoutDate}</td>
+                                                            <td style={{ padding: '10px', fontWeight: '600', color: 'var(--danger)' }}>{formatCurrency(p.amount, p.currency)}</td>
+                                                            <td style={{ padding: '10px' }}>
+                                                                <span style={{ background: 'var(--danger)', color: 'white', padding: '2px 8px', borderRadius: '10px', fontSize: '11px' }}>
+                                                                    {Math.abs(p.daysLeft)} days
+                                                                </span>
+                                                            </td>
+                                                            <td style={{ padding: '10px' }}>
+                                                                <button onClick={() => togglePaidStatus(p.key)} style={{ ...btnPrimary, background: 'var(--success)', padding: '5px 12px', fontSize: '12px' }}>
+                                                                    Mark Paid
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ================== MEMBERS ================== */}
+                        {activeTab === 'members' && (
+                            <div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
+                                    <h2 style={{ color: 'var(--primary)' }}>👥 Members ({memberArray.length})</h2>
+                                    <button onClick={openAddModal} style={{ ...btnPrimary, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                        <i className="fas fa-plus"></i> Add Member
+                                    </button>
+                                </div>
+
+                                <div style={cardStyle}>
+                                    <div style={{ marginBottom: '15px' }}>
+                                        <input 
+                                            placeholder="🔍 Search by name or ID..." 
+                                            value={searchTerm}
+                                            onChange={e => setSearchTerm(e.target.value)}
+                                            style={{ ...inputStyle, maxWidth: '300px' }}
+                                        />
+                                    </div>
+                                    <div style={{ overflowX: 'auto' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
+                                            <thead>
+                                                <tr style={{ background: 'var(--primary)', color: 'white' }}>
+                                                    <th style={{ padding: '12px', textAlign: 'left' }}>ID</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Name</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Phone</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Amount</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Deposit Date</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Monthly Return</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Status</th>
+                                                    <th style={{ padding: '12px', textAlign: 'center' }}>Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {memberArray.filter(m => m.name?.toLowerCase().includes(searchTerm.toLowerCase()) || m.id.toLowerCase().includes(searchTerm.toLowerCase())).map((member, idx) => (
+                                                    <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)' }}>
+                                                        <td style={{ padding: '12px', fontWeight: '600', color: 'var(--primary)' }}>{member.id}</td>
+                                                        <td style={{ padding: '12px' }}>{member.name}</td>
+                                                        <td style={{ padding: '12px' }}>{member.phone}</td>
+                                                        <td style={{ padding: '12px' }}>{formatCurrency(member.amount, member.currency)}</td>
+                                                        <td style={{ padding: '12px' }}>{member.depositDate}</td>
+                                                        <td style={{ padding: '12px', color: 'var(--success)', fontWeight: '600' }}>
+                                                            {formatCurrency(member.amount * member.returnPct / 100, member.currency)}
+                                                        </td>
+                                                        <td style={{ padding: '12px' }}>
+                                                            <span style={{ background: member.status === 'Active' ? 'var(--success)' : 'var(--gray-300)', color: member.status === 'Active' ? 'white' : 'var(--gray-800)', padding: '3px 10px', borderRadius: '10px', fontSize: '11px' }}>
+                                                                {member.status}
+                                                            </span>
+                                                        </td>
+                                                        <td style={{ padding: '12px', textAlign: 'center' }}>
+                                                            <button onClick={() => openEditModal(member)} style={{ background: 'var(--accent)', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px' }}>
+                                                                <i className="fas fa-edit"></i>
+                                                            </button>
+                                                            <button onClick={() => deleteMember(member.id)} style={{ background: 'var(--danger)', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}>
+                                                                <i className="fas fa-trash"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                        {memberArray.length === 0 && (
+                                            <p style={{ textAlign: 'center', padding: '40px', color: 'var(--gray-600)' }}>No members yet. Click "Add Member" to start!</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ================== PAYOUTS ================== */}
+                        {activeTab === 'payouts' && (
+                            <div>
+                                <h2 style={{ color: 'var(--primary)', marginBottom: '20px' }}>📅 Payout Tracker</h2>
+                                
+                                <div style={cardStyle}>
+                                    <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', flexWrap: 'wrap' }}>
+                                        <input 
+                                            placeholder="🔍 Search..." 
+                                            value={searchTerm}
+                                            onChange={e => setSearchTerm(e.target.value)}
+                                            style={{ ...inputStyle, maxWidth: '200px' }}
+                                        />
+                                        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...inputStyle, maxWidth: '180px' }}>
+                                            <option value="all">All Payouts</option>
+                                            <option value="upcoming">⚠️ Upcoming (7 Days)</option>
+                                            <option value="overdue">🚨 Overdue</option>
+                                            <option value="pending">⏳ Pending</option>
+                                            <option value="paid">✅ Paid</option>
+                                        </select>
+                                    </div>
+                                    <div style={{ overflowX: 'auto', maxHeight: '600px', overflowY: 'auto' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
+                                            <thead style={{ position: 'sticky', top: 0 }}>
+                                                <tr style={{ background: 'var(--primary)', color: 'white' }}>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Member</th>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Month</th>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Payout Date</th>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Amount</th>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Days</th>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Status</th>
+                                                    <th style={{ padding: '10px', textAlign: 'center' }}>Action</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {filteredPayouts.map((p, idx) => (
+                                                    <tr key={idx} style={{ 
+                                                        borderBottom: '1px solid var(--gray-200)',
+                                                        background: p.status === 'Paid' ? '#f0fff4' : p.isOverdue ? '#fff5f5' : p.isUpcoming ? '#fffaf0' : 'white'
+                                                    }}>
+                                                        <td style={{ padding: '10px' }}><strong>{p.memberId}</strong> - {p.memberName}</td>
+                                                        <td style={{ padding: '10px' }}>{p.month}</td>
+                                                        <td style={{ padding: '10px' }}>{p.payoutDate}</td>
+                                                        <td style={{ padding: '10px', fontWeight: '600' }}>{formatCurrency(p.amount, p.currency)}</td>
+                                                        <td style={{ padding: '10px' }}>
+                                                            {p.status === 'Paid' ? (
+                                                                <span style={{ color: 'var(--success)' }}>-</span>
+                                                            ) : (
+                                                                <span style={{ 
+                                                                    background: p.isOverdue ? 'var(--danger)' : p.isUpcoming ? 'var(--warning)' : 'var(--gray-300)',
+                                                                    color: p.isOverdue || p.isUpcoming ? 'white' : 'var(--gray-800)',
+                                                                    padding: '2px 8px', borderRadius: '10px', fontSize: '11px'
+                                                                }}>
+                                                                    {p.isOverdue ? `${Math.abs(p.daysLeft)} overdue` : p.daysLeft === 0 ? 'Today!' : `${p.daysLeft} days`}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td style={{ padding: '10px' }}>
+                                                            <span style={{ 
+                                                                background: p.status === 'Paid' ? 'var(--success)' : 'var(--gray-300)',
+                                                                color: p.status === 'Paid' ? 'white' : 'var(--gray-800)',
+                                                                padding: '3px 10px', borderRadius: '10px', fontSize: '11px'
+                                                            }}>{p.status}</span>
+                                                        </td>
+                                                        <td style={{ padding: '10px', textAlign: 'center' }}>
+                                                            <button onClick={() => togglePaidStatus(p.key)} style={{
+                                                                background: p.status === 'Paid' ? 'var(--gray-600)' : 'var(--success)',
+                                                                color: 'white', border: 'none', padding: '5px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px'
+                                                            }}>
+                                                                {p.status === 'Paid' ? 'Undo' : 'Mark Paid'}
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ================== WHATSAPP CARD ================== */}
+                        {activeTab === 'card' && (
+                            <div>
+                                <h2 style={{ color: 'var(--primary)', marginBottom: '20px' }}>📱 WhatsApp Card Generator</h2>
+                                
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '20px' }}>
+                                    <div style={cardStyle}>
+                                        <h3 style={{ marginBottom: '15px', fontSize: '16px' }}>Select Member</h3>
+                                        <select 
+                                            onChange={e => setSelectedMember(memberArray.find(m => m.id === e.target.value))}
+                                            style={{ ...inputStyle, marginBottom: '20px' }}
+                                        >
+                                            <option value="">-- Select Member --</option>
+                                            {memberArray.map(m => (
+                                                <option key={m.id} value={m.id}>{m.id} - {m.name}</option>
+                                            ))}
+                                        </select>
+
+                                        {selectedMember && (
+                                            <div style={{ background: 'var(--gray-100)', padding: '15px', borderRadius: '5px', fontSize: '14px' }}>
+                                                <p><strong>Name:</strong> {selectedMember.name}</p>
+                                                <p><strong>Phone:</strong> {selectedMember.phone}</p>
+                                                <p><strong>Amount:</strong> {formatCurrency(selectedMember.amount, selectedMember.currency)}</p>
+                                                <p><strong>Monthly Return:</strong> {formatCurrency(selectedMember.amount * selectedMember.returnPct / 100, selectedMember.currency)}</p>
+                                                <p><strong>Deposit Date:</strong> {selectedMember.depositDate}</p>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div style={cardStyle}>
+                                        <h3 style={{ marginBottom: '15px', color: '#25d366', fontSize: '16px' }}>
+                                            <i className="fab fa-whatsapp"></i> WhatsApp Message
+                                        </h3>
+                                        {selectedMember ? (
+                                            <>
+                                                <pre style={{ 
+                                                    background: 'var(--primary)', color: 'white', padding: '15px', borderRadius: '5px',
+                                                    whiteSpace: 'pre-wrap', fontSize: '12px', maxHeight: '350px', overflow: 'auto', lineHeight: '1.5'
+                                                }}>
+                                                    {generateWhatsAppCard(selectedMember)}
+                                                </pre>
+                                                <button onClick={() => copyToClipboard(generateWhatsAppCard(selectedMember))} style={{
+                                                    width: '100%', marginTop: '15px', background: '#25d366', color: 'white',
+                                                    border: 'none', padding: '12px', borderRadius: '5px', cursor: 'pointer',
+                                                    fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                                                }}>
+                                                    <i className="fas fa-copy"></i> Copy to Clipboard
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <p style={{ color: 'var(--gray-600)', textAlign: 'center', padding: '50px' }}>
+                                                Select a member to generate card
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ================== SETTINGS ================== */}
+                        {activeTab === 'settings' && (
+                            <div>
+                                <h2 style={{ color: 'var(--primary)', marginBottom: '20px' }}>⚙️ Backup & Restore</h2>
+                                
+                                <div style={{ ...cardStyle, marginBottom: '20px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                                        <i className="fas fa-cloud" style={{ fontSize: '40px' }}></i>
+                                        <div>
+                                            <h3>☁️ Cloud Sync Active</h3>
+                                            <p style={{ opacity: 0.9, fontSize: '14px' }}>ඔයාගේ data Google Firebase cloud එකේ safe! ඕනේම device එකකින් access කරන්න පුළුවන්.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+                                    <div style={cardStyle}>
+                                        <h3 style={{ marginBottom: '15px', fontSize: '16px' }}><i className="fas fa-download"></i> Download Backup</h3>
+                                        <p style={{ color: 'var(--gray-600)', marginBottom: '15px', fontSize: '14px' }}>
+                                            Extra safety එකට local backup එකක් download කරන්න.
+                                        </p>
+                                        <button onClick={exportData} style={{ ...btnPrimary, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            <i className="fas fa-download"></i> Download Backup
+                                        </button>
+                                    </div>
+
+                                    <div style={cardStyle}>
+                                        <h3 style={{ marginBottom: '15px', fontSize: '16px' }}><i className="fas fa-upload"></i> Restore from Backup</h3>
+                                        <p style={{ color: 'var(--gray-600)', marginBottom: '15px', fontSize: '14px' }}>
+                                            Backup file එකක් upload කරලා cloud එකට restore කරන්න.
+                                        </p>
+                                        <input type="file" accept=".json" onChange={importData} style={{ fontSize: '14px' }} />
+                                    </div>
+
+                                    <div style={{ ...cardStyle, borderLeft: '4px solid var(--danger)' }}>
+                                        <h3 style={{ marginBottom: '15px', fontSize: '16px', color: 'var(--danger)' }}><i className="fas fa-trash"></i> Clear All Data</h3>
+                                        <p style={{ color: 'var(--gray-600)', marginBottom: '15px', fontSize: '14px' }}>
+                                            Cloud එකේ තියෙන all data delete කරනවා. ⚠️ Careful!
+                                        </p>
+                                        <button onClick={() => {
+                                            if (confirm('Are you sure? This will delete ALL data from cloud!')) {
+                                                database.ref('members').remove();
+                                                database.ref('paidStatus').remove();
+                                                alert('All data deleted from cloud!');
+                                            }
+                                        }} style={{ ...btnPrimary, background: 'var(--danger)' }}>
+                                            <i className="fas fa-trash"></i> Clear All
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* ================== ADD/EDIT MODAL ================== */}
+                    {showModal && (
+                        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+                            <div style={{ ...cardStyle, width: '450px', maxHeight: '90vh', overflow: 'auto' }}>
+                                <h3 style={{ marginBottom: '20px', color: 'var(--primary)' }}>
+                                    {editingMember ? 'Edit Member' : 'Add New Member'}
+                                </h3>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                    <div>
+                                        <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Name *</label>
+                                        <input placeholder="Member Name" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} style={inputStyle} />
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Phone</label>
+                                        <input placeholder="Phone Number" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} style={inputStyle} />
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px' }}>
+                                        <div>
+                                            <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Amount *</label>
+                                            <input placeholder="Investment Amount" type="number" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} style={inputStyle} />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Currency</label>
+                                            <select value={formData.currency} onChange={e => setFormData({...formData, currency: e.target.value})} style={inputStyle}>
+                                                <option value="LKR">LKR</option>
+                                                <option value="USD">USD</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                        <div>
+                                            <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Deposit Date *</label>
+                                            <input type="date" value={formData.depositDate} onChange={e => setFormData({...formData, depositDate: e.target.value})} style={inputStyle} />
+                                        </div>
+                                        <div>
+                                            <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Return %</label>
+                                            <input type="number" value={formData.returnPct} onChange={e => setFormData({...formData, returnPct: Number(e.target.value)})} style={inputStyle} />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Status</label>
+                                        <select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})} style={inputStyle}>
+                                            <option value="Active">Active</option>
+                                            <option value="Inactive">Inactive</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Notes</label>
+                                        <input placeholder="Additional notes..." value={formData.notes || ''} onChange={e => setFormData({...formData, notes: e.target.value})} style={inputStyle} />
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
+                                        <button onClick={() => setShowModal(false)} style={{ flex: 1, padding: '12px', border: '1px solid var(--gray-300)', background: 'white', borderRadius: '5px', cursor: 'pointer' }}>
+                                            Cancel
+                                        </button>
+                                        <button onClick={saveMember} style={{ ...btnPrimary, flex: 1 }}>
+                                            {editingMember ? 'Update' : 'Add Member'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
