@@ -41,6 +41,20 @@
         .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(26,54,93,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; color: white; }
         .spinner { width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.3); border-top-color: #ffd700; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* Mobile Responsive */
+        @media (max-width: 768px) {
+            .sidebar { display: none !important; }
+            .main-content { margin-left: 0 !important; width: 100% !important; padding: 15px !important; padding-bottom: 80px !important; }
+            .mobile-nav { display: flex !important; }
+            .mobile-header { display: block !important; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
+            .modal-content { width: 95% !important; margin: 10px !important; }
+        }
+        .mobile-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: var(--primary); padding: 10px 0; z-index: 999; justify-content: space-around; }
+        .mobile-nav-item { color: white; text-align: center; font-size: 11px; cursor: pointer; padding: 5px 10px; }
+        .mobile-nav-item.active { color: #ffd700; }
+        .mobile-nav-item i { display: block; font-size: 18px; margin-bottom: 3px; }
     </style>
 </head>
 <body>
@@ -108,7 +122,13 @@
                     });
                 }
             });
-            return payouts.sort((a, b) => a.daysLeft - b.daysLeft);
+            // Sort by Member ID first, then by Month
+            return payouts.sort((a, b) => {
+                if (a.memberId !== b.memberId) {
+                    return a.memberId.localeCompare(b.memberId);
+                }
+                return a.month - b.month;
+            });
         };
 
         const generateMemberId = (members) => {
@@ -125,10 +145,13 @@
             const [activeTab, setActiveTab] = useState('dashboard');
             const [members, setMembers] = useState({});
             const [paidStatus, setPaidStatus] = useState({});
+            const [invoices, setInvoices] = useState({});
             const [payouts, setPayouts] = useState([]);
             const [showModal, setShowModal] = useState(false);
             const [editingMember, setEditingMember] = useState(null);
             const [selectedMember, setSelectedMember] = useState(null);
+            const [selectedInvoice, setSelectedInvoice] = useState(null);
+            const [showInvoiceModal, setShowInvoiceModal] = useState(false);
             const [searchTerm, setSearchTerm] = useState('');
             const [filterStatus, setFilterStatus] = useState('all');
             const [isOnline, setIsOnline] = useState(true);
@@ -155,6 +178,13 @@
                     setPaidStatus(data);
                 });
 
+                // Listen for invoices changes
+                const invoicesRef = database.ref('invoices');
+                invoicesRef.on('value', (snapshot) => {
+                    const data = snapshot.val() || {};
+                    setInvoices(data);
+                });
+
                 // Connection state
                 const connectedRef = database.ref('.info/connected');
                 connectedRef.on('value', (snapshot) => {
@@ -164,6 +194,7 @@
                 return () => {
                     membersRef.off();
                     paidRef.off();
+                    invoicesRef.off();
                     connectedRef.off();
                 };
             }, []);
@@ -172,6 +203,77 @@
             useEffect(() => {
                 setPayouts(generatePayouts(members, paidStatus));
             }, [members, paidStatus]);
+
+            // Auto-send Telegram reminder once per day
+            const [telegramSent, setTelegramSent] = useState(false);
+            
+            useEffect(() => {
+                if (payouts.length === 0 || telegramSent) return;
+                
+                const today = new Date().toDateString();
+                const lastSent = localStorage.getItem('ceylon_regal_last_telegram');
+                
+                // Only send if not already sent today
+                if (lastSent === today) {
+                    setTelegramSent(true);
+                    return;
+                }
+                
+                const upcoming = payouts.filter(p => p.isUpcoming && p.status === 'Pending');
+                
+                if (upcoming.length > 0) {
+                    // Mark as sent immediately to prevent duplicates
+                    setTelegramSent(true);
+                    localStorage.setItem('ceylon_regal_last_telegram', today);
+                    
+                    // Auto send after 2 seconds
+                    setTimeout(() => {
+                        autoSendTelegramReminder(upcoming);
+                    }, 2000);
+                }
+            }, [payouts, telegramSent]);
+
+            // Auto-send function (silent, no alert)
+            const autoSendTelegramReminder = async (upcoming) => {
+                const today = new Date().toDateString();
+                
+                let message = '🔔 *CEYLON REGAL - DAILY REMINDER*\n';
+                message += '━━━━━━━━━━━━━━━━━━━━\n\n';
+                message += `📅 Upcoming Payouts (${upcoming.length})\n\n`;
+
+                upcoming.forEach((p, idx) => {
+                    const daysText = p.daysLeft === 0 ? '⚡ TODAY!' : p.daysLeft === 1 ? '⏰ TOMORROW!' : `${p.daysLeft} days`;
+                    message += `${idx + 1}. *${p.memberName}* (${p.memberId})\n`;
+                    message += `   📆 ${p.payoutDate}\n`;
+                    message += `   💰 ${p.currency} ${p.amount.toLocaleString()}\n`;
+                    message += `   ${daysText}\n\n`;
+                });
+
+                message += '━━━━━━━━━━━━━━━━━━━━\n';
+                message += '🏆 Ceylon Regal Investment\n';
+                message += `📲 Auto-sent: ${new Date().toLocaleTimeString()}`;
+
+                try {
+                    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            chat_id: TELEGRAM_CHAT_ID,
+                            text: message,
+                            parse_mode: 'Markdown'
+                        })
+                    });
+
+                    const result = await response.json();
+                    if (result.ok) {
+                        // Save today's date so we don't send again
+                        localStorage.setItem('ceylon_regal_last_telegram', today);
+                        console.log('✅ Auto Telegram reminder sent!');
+                    }
+                } catch (error) {
+                    console.log('❌ Auto send failed:', error.message);
+                }
+            };
 
             // Stats
             const memberArray = Object.values(members || {});
@@ -212,14 +314,38 @@
                 } else {
                     // Add new member
                     const newId = generateMemberId(members);
-                    database.ref(`members/${newId}`).set({
+                    const memberData = {
                         ...formData,
                         id: newId,
                         amount: Number(formData.amount),
                         createdAt: new Date().toISOString()
-                    });
+                    };
+                    database.ref(`members/${newId}`).set(memberData);
+                    
+                    // Auto-generate invoice
+                    const invoiceNumber = generateInvoiceNumber();
+                    const invoiceData = {
+                        invoiceNo: invoiceNumber,
+                        memberId: newId,
+                        memberName: formData.name,
+                        phone: formData.phone,
+                        amount: Number(formData.amount),
+                        currency: formData.currency,
+                        borrowDate: formData.depositDate,
+                        createdAt: new Date().toISOString()
+                    };
+                    database.ref(`invoices/${invoiceNumber}`).set(invoiceData);
                 }
                 setShowModal(false);
+            };
+
+            // Generate Invoice Number
+            const generateInvoiceNumber = () => {
+                const year = new Date().getFullYear();
+                const invoiceArray = Object.keys(invoices || {});
+                const thisYearInvoices = invoiceArray.filter(inv => inv.startsWith(`INV-${year}`));
+                const nextNum = thisYearInvoices.length + 1;
+                return `INV-${year}-${String(nextNum).padStart(4, '0')}`;
             };
 
             const deleteMember = (id) => {
@@ -263,6 +389,161 @@
             const copyToClipboard = (text) => {
                 navigator.clipboard.writeText(text);
                 alert('✅ Copied! Paste in WhatsApp.');
+            };
+
+            // Invoice Functions
+            const generateInvoiceHTML = (invoice) => {
+                return `
+                    <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; border: 2px solid #1a365d; border-radius: 10px; overflow: hidden;">
+                        <!-- Header -->
+                        <div style="background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%); color: white; padding: 20px; text-align: center;">
+                            <h1 style="margin: 0; font-size: 24px;">🏆 KVAS Chanaka Jayanethra</h1>
+                        </div>
+                        
+                        <!-- Invoice Info -->
+                        <div style="background: #ffd700; color: #1a365d; padding: 15px; display: flex; justify-content: space-between;">
+                            <div>
+                                <strong style="font-size: 18px;">INVOICE</strong>
+                            </div>
+                            <div style="text-align: right;">
+                                <div><strong>${invoice.invoiceNo}</strong></div>
+                                <div style="font-size: 12px;">Date: ${formatDate(new Date())}</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Borrower Details -->
+                        <div style="padding: 15px; background: #e3f2fd;">
+                            <h3 style="margin: 0 0 10px 0; color: #1a365d; font-size: 14px;">👤 BORROWER DETAILS</h3>
+                            <table style="width: 100%; font-size: 14px;">
+                                <tr><td style="padding: 5px 0;"><strong>Name</strong></td><td>: ${invoice.memberName}</td></tr>
+                                <tr><td style="padding: 5px 0;"><strong>Phone</strong></td><td>: ${invoice.phone || 'N/A'}</td></tr>
+                            </table>
+                        </div>
+                        
+                        <!-- Loan Details -->
+                        <div style="padding: 15px; background: #e8f5e9;">
+                            <h3 style="margin: 0 0 10px 0; color: #1a365d; font-size: 14px;">💰 LOAN DETAILS</h3>
+                            <table style="width: 100%; font-size: 14px;">
+                                <tr><td style="padding: 5px 0;"><strong>Borrowing Amount</strong></td><td>: ${invoice.currency} ${Number(invoice.amount).toLocaleString()}</td></tr>
+                                <tr><td style="padding: 5px 0;"><strong>Borrow Date</strong></td><td>: ${invoice.borrowDate}</td></tr>
+                            </table>
+                        </div>
+                        
+                        <!-- Contact -->
+                        <div style="padding: 15px; background: #f5f5f5; text-align: center;">
+                            <p style="margin: 0; font-size: 14px;">📞 Contact: <strong>077-1904395</strong></p>
+                        </div>
+                        
+                        <!-- Signature -->
+                        <div style="padding: 20px; border-top: 2px dashed #ccc;">
+                            <p style="margin: 0; font-size: 14px;">✍️ Signature: <strong style="font-family: cursive; font-size: 18px;">Chanaka Jayanethra</strong></p>
+                        </div>
+                        
+                        <!-- Footer -->
+                        <div style="background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%); color: white; padding: 10px; text-align: center; font-size: 12px;">
+                            Thank you for your trust!
+                        </div>
+                    </div>
+                `;
+            };
+
+            const downloadInvoicePDF = (invoice) => {
+                const invoiceHTML = generateInvoiceHTML(invoice);
+                const printWindow = window.open('', '_blank');
+                printWindow.document.write(`
+                    <html>
+                        <head>
+                            <title>Invoice - ${invoice.invoiceNo}</title>
+                            <style>
+                                body { margin: 20px; }
+                                @media print {
+                                    body { margin: 0; }
+                                }
+                            </style>
+                        </head>
+                        <body>
+                            ${invoiceHTML}
+                            <script>
+                                setTimeout(() => {
+                                    window.print();
+                                }, 500);
+                            </script>
+                        </body>
+                    </html>
+                `);
+                printWindow.document.close();
+            };
+
+            const sendInvoiceWhatsApp = (invoice) => {
+                let message = `📄 *INVOICE - ${invoice.invoiceNo}*\n`;
+                message += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+                message += `🏆 *KVAS Chanaka Jayanethra*\n\n`;
+                message += `👤 *BORROWER DETAILS*\n`;
+                message += `Name: ${invoice.memberName}\n`;
+                message += `Phone: ${invoice.phone || 'N/A'}\n\n`;
+                message += `💰 *LOAN DETAILS*\n`;
+                message += `Borrowing Amount: ${invoice.currency} ${Number(invoice.amount).toLocaleString()}\n`;
+                message += `Borrow Date: ${invoice.borrowDate}\n\n`;
+                message += `━━━━━━━━━━━━━━━━━━━━\n`;
+                message += `📞 Contact: 077-1904395\n`;
+                message += `✍️ Signature: Chanaka Jayanethra\n`;
+                message += `━━━━━━━━━━━━━━━━━━━━`;
+                
+                navigator.clipboard.writeText(message);
+                alert('✅ Invoice copied! Paste in WhatsApp.');
+            };
+
+            // Telegram Bot Configuration
+            const TELEGRAM_BOT_TOKEN = '8589589962:AAFec64E9n9NKlHOIvmitw-hkp3yiPNPcew';
+            const TELEGRAM_CHAT_ID = '1258072892';
+
+            const sendTelegramReminder = async () => {
+                // Get upcoming payouts (next 7 days)
+                const upcoming = payouts.filter(p => p.isUpcoming && p.status === 'Pending');
+                
+                if (upcoming.length === 0) {
+                    alert('✅ No upcoming payouts in next 7 days!');
+                    return;
+                }
+
+                // Build message
+                let message = '🔔 *CEYLON REGAL - UPCOMING PAYOUTS*\n';
+                message += '━━━━━━━━━━━━━━━━━━━━\n\n';
+                message += `📅 Next 7 Days (${upcoming.length} payments)\n\n`;
+
+                upcoming.forEach((p, idx) => {
+                    const daysText = p.daysLeft === 0 ? '⚡ TODAY!' : `${p.daysLeft} days`;
+                    message += `${idx + 1}. *${p.memberName}* (${p.memberId})\n`;
+                    message += `   📆 ${p.payoutDate}\n`;
+                    message += `   💰 ${p.currency} ${p.amount.toLocaleString()}\n`;
+                    message += `   ⏰ ${daysText}\n\n`;
+                });
+
+                message += '━━━━━━━━━━━━━━━━━━━━\n';
+                message += '🏆 Ceylon Regal Investment';
+
+                try {
+                    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            chat_id: TELEGRAM_CHAT_ID,
+                            text: message,
+                            parse_mode: 'Markdown'
+                        })
+                    });
+
+                    const result = await response.json();
+                    if (result.ok) {
+                        // Save today's date so auto-send won't trigger
+                        localStorage.setItem('ceylon_regal_last_telegram', new Date().toDateString());
+                        alert('✅ Telegram message sent successfully!');
+                    } else {
+                        alert('❌ Failed to send: ' + result.description);
+                    }
+                } catch (error) {
+                    alert('❌ Error: ' + error.message);
+                }
             };
 
             const exportData = () => {
@@ -312,7 +593,8 @@
             // Styles
             const sidebarStyle = {
                 width: '220px', background: 'var(--primary)', color: 'var(--white)',
-                minHeight: '100vh', padding: '20px 0', position: 'fixed', left: 0, top: 0
+                minHeight: '100vh', padding: '20px 0', position: 'fixed', left: 0, top: 0,
+                className: 'sidebar'
             };
             const menuItemStyle = (isActive) => ({
                 padding: '14px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px',
@@ -346,7 +628,7 @@
             return (
                 <div style={{ display: 'flex' }}>
                     {/* Sidebar */}
-                    <div style={sidebarStyle}>
+                    <div className="sidebar" style={sidebarStyle}>
                         <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--primary-light)', marginBottom: '15px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                 <i className="fas fa-crown" style={{ color: '#ffd700', fontSize: '20px' }}></i>
@@ -370,6 +652,9 @@
                         <div onClick={() => setActiveTab('payouts')} style={menuItemStyle(activeTab === 'payouts')}>
                             <i className="fas fa-calendar-check"></i> Payout Tracker
                         </div>
+                        <div onClick={() => setActiveTab('invoices')} style={menuItemStyle(activeTab === 'invoices')}>
+                            <i className="fas fa-file-invoice"></i> Invoices
+                        </div>
                         <div onClick={() => setActiveTab('card')} style={menuItemStyle(activeTab === 'card')}>
                             <i className="fab fa-whatsapp"></i> WhatsApp Card
                         </div>
@@ -379,7 +664,16 @@
                     </div>
 
                     {/* Main Content */}
-                    <div style={{ marginLeft: '220px', padding: '25px', width: 'calc(100% - 220px)', minHeight: '100vh' }}>
+                    <div className="main-content" style={{ marginLeft: '220px', padding: '25px', paddingBottom: '80px', width: 'calc(100% - 220px)', minHeight: '100vh' }}>
+                        
+                        {/* Mobile Header */}
+                        <div className="mobile-header" style={{ display: 'none', background: 'var(--primary)', color: 'white', padding: '15px', marginBottom: '20px', marginLeft: '-15px', marginRight: '-15px', marginTop: '-15px', textAlign: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                <i className="fas fa-crown" style={{ color: '#ffd700', fontSize: '20px' }}></i>
+                                <span style={{ fontSize: '18px', fontWeight: 'bold' }}>Ceylon Regal</span>
+                                <span className="cloud-badge"><i className="fas fa-cloud"></i> Cloud</span>
+                            </div>
+                        </div>
                         
                         {/* ================== DASHBOARD ================== */}
                         {activeTab === 'dashboard' && (
@@ -416,9 +710,14 @@
 
                                 {/* Upcoming */}
                                 <div style={{ ...cardStyle, marginBottom: '20px' }}>
-                                    <h3 style={{ color: 'var(--warning)', marginBottom: '15px', fontSize: '16px' }}>
-                                        <i className="fas fa-clock"></i> ⚠️ Upcoming Payouts (Next 7 Days)
-                                    </h3>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                                        <h3 style={{ color: 'var(--warning)', fontSize: '16px' }}>
+                                            <i className="fas fa-clock"></i> ⚠️ Upcoming Payouts (Next 7 Days)
+                                        </h3>
+                                        <button onClick={sendTelegramReminder} style={{ background: '#0088cc', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '5px', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                            <i className="fab fa-telegram"></i> Send Reminder
+                                        </button>
+                                    </div>
                                     {upcomingPayouts.length === 0 ? (
                                         <p style={{ color: 'var(--gray-600)', padding: '20px', textAlign: 'center' }}>✅ No upcoming payouts</p>
                                     ) : (
@@ -709,6 +1008,67 @@
                             </div>
                         )}
 
+                        {/* ================== INVOICES ================== */}
+                        {activeTab === 'invoices' && (
+                            <div>
+                                <h2 style={{ color: 'var(--primary)', marginBottom: '20px' }}>📄 Invoices</h2>
+                                
+                                <div style={cardStyle}>
+                                    <div style={{ marginBottom: '15px' }}>
+                                        <input 
+                                            placeholder="🔍 Search by invoice no or member name..." 
+                                            value={searchTerm}
+                                            onChange={e => setSearchTerm(e.target.value)}
+                                            style={{ ...inputStyle, maxWidth: '350px' }}
+                                        />
+                                    </div>
+                                    <div style={{ overflowX: 'auto' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '700px' }}>
+                                            <thead>
+                                                <tr style={{ background: 'var(--primary)', color: 'white' }}>
+                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Invoice No</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Member</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Amount</th>
+                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Borrow Date</th>
+                                                    <th style={{ padding: '12px', textAlign: 'center' }}>Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {Object.values(invoices || {})
+                                                    .filter(inv => 
+                                                        inv.invoiceNo?.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                                                        inv.memberName?.toLowerCase().includes(searchTerm.toLowerCase())
+                                                    )
+                                                    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+                                                    .map((invoice, idx) => (
+                                                    <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)' }}>
+                                                        <td style={{ padding: '12px', fontWeight: '600', color: 'var(--primary)' }}>{invoice.invoiceNo}</td>
+                                                        <td style={{ padding: '12px' }}>{invoice.memberName}</td>
+                                                        <td style={{ padding: '12px', color: 'var(--success)', fontWeight: '600' }}>{formatCurrency(invoice.amount, invoice.currency)}</td>
+                                                        <td style={{ padding: '12px' }}>{invoice.borrowDate}</td>
+                                                        <td style={{ padding: '12px', textAlign: 'center' }}>
+                                                            <button onClick={() => { setSelectedInvoice(invoice); setShowInvoiceModal(true); }} style={{ background: 'var(--accent)', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px', fontSize: '12px' }}>
+                                                                <i className="fas fa-eye"></i> View
+                                                            </button>
+                                                            <button onClick={() => downloadInvoicePDF(invoice)} style={{ background: 'var(--danger)', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px', fontSize: '12px' }}>
+                                                                <i className="fas fa-file-pdf"></i> PDF
+                                                            </button>
+                                                            <button onClick={() => sendInvoiceWhatsApp(invoice)} style={{ background: '#25d366', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
+                                                                <i className="fab fa-whatsapp"></i>
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                        {Object.keys(invoices || {}).length === 0 && (
+                                            <p style={{ textAlign: 'center', padding: '40px', color: 'var(--gray-600)' }}>No invoices yet. Add a member to auto-generate invoice!</p>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
                         {/* ================== SETTINGS ================== */}
                         {activeTab === 'settings' && (
                             <div>
@@ -752,6 +1112,7 @@
                                             if (confirm('Are you sure? This will delete ALL data from cloud!')) {
                                                 database.ref('members').remove();
                                                 database.ref('paidStatus').remove();
+                                                database.ref('invoices').remove();
                                                 alert('All data deleted from cloud!');
                                             }
                                         }} style={{ ...btnPrimary, background: 'var(--danger)' }}>
@@ -795,7 +1156,50 @@
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                                         <div>
                                             <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Deposit Date *</label>
-                                            <input type="date" value={formData.depositDate} onChange={e => setFormData({...formData, depositDate: e.target.value})} style={inputStyle} />
+                                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '5px' }}>
+                                                <select 
+                                                    value={formData.depositDate ? formData.depositDate.split('-')[0] : ''} 
+                                                    onChange={e => {
+                                                        const parts = formData.depositDate ? formData.depositDate.split('-') : ['', '', ''];
+                                                        parts[0] = e.target.value;
+                                                        setFormData({...formData, depositDate: parts.join('-')});
+                                                    }} 
+                                                    style={{...inputStyle, padding: '10px 5px', fontSize: '13px'}}
+                                                >
+                                                    <option value="">Year</option>
+                                                    {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => (
+                                                        <option key={y} value={y}>{y}</option>
+                                                    ))}
+                                                </select>
+                                                <select 
+                                                    value={formData.depositDate ? formData.depositDate.split('-')[1] : ''} 
+                                                    onChange={e => {
+                                                        const parts = formData.depositDate ? formData.depositDate.split('-') : ['', '', ''];
+                                                        parts[1] = e.target.value;
+                                                        setFormData({...formData, depositDate: parts.join('-')});
+                                                    }} 
+                                                    style={{...inputStyle, padding: '10px 5px', fontSize: '13px'}}
+                                                >
+                                                    <option value="">Mon</option>
+                                                    {['01','02','03','04','05','06','07','08','09','10','11','12'].map(m => (
+                                                        <option key={m} value={m}>{m}</option>
+                                                    ))}
+                                                </select>
+                                                <select 
+                                                    value={formData.depositDate ? formData.depositDate.split('-')[2] : ''} 
+                                                    onChange={e => {
+                                                        const parts = formData.depositDate ? formData.depositDate.split('-') : ['', '', ''];
+                                                        parts[2] = e.target.value;
+                                                        setFormData({...formData, depositDate: parts.join('-')});
+                                                    }} 
+                                                    style={{...inputStyle, padding: '10px 5px', fontSize: '13px'}}
+                                                >
+                                                    <option value="">Day</option>
+                                                    {Array.from({length: 31}, (_, i) => String(i + 1).padStart(2, '0')).map(d => (
+                                                        <option key={d} value={d}>{d}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
                                         </div>
                                         <div>
                                             <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Return %</label>
@@ -825,6 +1229,94 @@
                             </div>
                         </div>
                     )}
+
+                    {/* ================== INVOICE VIEW MODAL ================== */}
+                    {showInvoiceModal && selectedInvoice && (
+                        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
+                            <div style={{ background: 'white', borderRadius: '10px', width: '100%', maxWidth: '500px', maxHeight: '90vh', overflow: 'auto' }}>
+                                {/* Header */}
+                                <div style={{ background: 'linear-gradient(135deg, #1a365d 0%, #2c5282 100%)', color: 'white', padding: '20px', textAlign: 'center', borderRadius: '10px 10px 0 0' }}>
+                                    <h1 style={{ margin: 0, fontSize: '22px' }}>🏆 KVAS Chanaka Jayanethra</h1>
+                                </div>
+                                
+                                {/* Invoice Info */}
+                                <div style={{ background: '#ffd700', color: '#1a365d', padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <div>
+                                        <strong style={{ fontSize: '18px' }}>INVOICE</strong>
+                                    </div>
+                                    <div style={{ textAlign: 'right' }}>
+                                        <div style={{ fontWeight: 'bold' }}>{selectedInvoice.invoiceNo}</div>
+                                        <div style={{ fontSize: '12px' }}>Date: {formatDate(new Date())}</div>
+                                    </div>
+                                </div>
+                                
+                                {/* Borrower Details */}
+                                <div style={{ padding: '15px', background: '#e3f2fd' }}>
+                                    <h3 style={{ margin: '0 0 10px 0', color: '#1a365d', fontSize: '14px' }}>👤 BORROWER DETAILS</h3>
+                                    <table style={{ width: '100%', fontSize: '14px' }}>
+                                        <tbody>
+                                            <tr><td style={{ padding: '5px 0', width: '40%' }}><strong>Name</strong></td><td>: {selectedInvoice.memberName}</td></tr>
+                                            <tr><td style={{ padding: '5px 0' }}><strong>Phone</strong></td><td>: {selectedInvoice.phone || 'N/A'}</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                
+                                {/* Loan Details */}
+                                <div style={{ padding: '15px', background: '#e8f5e9' }}>
+                                    <h3 style={{ margin: '0 0 10px 0', color: '#1a365d', fontSize: '14px' }}>💰 LOAN DETAILS</h3>
+                                    <table style={{ width: '100%', fontSize: '14px' }}>
+                                        <tbody>
+                                            <tr><td style={{ padding: '5px 0', width: '40%' }}><strong>Borrowing Amount</strong></td><td>: {selectedInvoice.currency} {Number(selectedInvoice.amount).toLocaleString()}</td></tr>
+                                            <tr><td style={{ padding: '5px 0' }}><strong>Borrow Date</strong></td><td>: {selectedInvoice.borrowDate}</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                
+                                {/* Contact */}
+                                <div style={{ padding: '15px', background: '#f5f5f5', textAlign: 'center' }}>
+                                    <p style={{ margin: 0, fontSize: '14px' }}>📞 Contact: <strong>077-1904395</strong></p>
+                                </div>
+                                
+                                {/* Signature */}
+                                <div style={{ padding: '20px', borderTop: '2px dashed #ccc' }}>
+                                    <p style={{ margin: 0, fontSize: '14px' }}>✍️ Signature: <strong style={{ fontFamily: 'cursive', fontSize: '20px' }}>Chanaka Jayanethra</strong></p>
+                                </div>
+                                
+                                {/* Action Buttons */}
+                                <div style={{ padding: '15px', display: 'flex', gap: '10px', borderTop: '1px solid #eee' }}>
+                                    <button onClick={() => downloadInvoicePDF(selectedInvoice)} style={{ flex: 1, padding: '12px', background: 'var(--danger)', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '14px' }}>
+                                        <i className="fas fa-file-pdf"></i> Download PDF
+                                    </button>
+                                    <button onClick={() => sendInvoiceWhatsApp(selectedInvoice)} style={{ flex: 1, padding: '12px', background: '#25d366', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '14px' }}>
+                                        <i className="fab fa-whatsapp"></i> WhatsApp
+                                    </button>
+                                    <button onClick={() => setShowInvoiceModal(false)} style={{ flex: 1, padding: '12px', background: 'var(--gray-600)', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '14px' }}>
+                                        Close
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ================== MOBILE BOTTOM NAVIGATION ================== */}
+                    <div className="mobile-nav">
+                        <div className={`mobile-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
+                            <i className="fas fa-chart-pie"></i>
+                            Dashboard
+                        </div>
+                        <div className={`mobile-nav-item ${activeTab === 'members' ? 'active' : ''}`} onClick={() => setActiveTab('members')}>
+                            <i className="fas fa-users"></i>
+                            Members
+                        </div>
+                        <div className={`mobile-nav-item ${activeTab === 'invoices' ? 'active' : ''}`} onClick={() => setActiveTab('invoices')}>
+                            <i className="fas fa-file-invoice"></i>
+                            Invoices
+                        </div>
+                        <div className={`mobile-nav-item ${activeTab === 'payouts' ? 'active' : ''}`} onClick={() => setActiveTab('payouts')}>
+                            <i className="fas fa-calendar-check"></i>
+                            Payouts
+                        </div>
+                    </div>
                 </div>
             );
         };
