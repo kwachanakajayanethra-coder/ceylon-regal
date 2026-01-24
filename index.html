@@ -28,12 +28,9 @@
             --warning: #d69e2e;
             --danger: #e53e3e;
         }
-        input, select { font-size: 14px; }
+        input, select { font-size: 16px; }
         button { font-family: inherit; }
         table { font-size: 14px; }
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: #f1f1f1; }
-        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
         .cloud-badge { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 3px 8px; border-radius: 10px; font-size: 10px; margin-left: 8px; }
         .sync-indicator { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; padding: 4px 10px; border-radius: 15px; }
         .sync-online { background: #c6f6d5; color: #276749; }
@@ -41,15 +38,11 @@
         .loading-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(26,54,93,0.9); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; color: white; }
         .spinner { width: 50px; height: 50px; border: 4px solid rgba(255,255,255,0.3); border-top-color: #ffd700; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        
-        /* Mobile Responsive */
         @media (max-width: 768px) {
             .sidebar { display: none !important; }
             .main-content { margin-left: 0 !important; width: 100% !important; padding: 15px !important; padding-bottom: 80px !important; }
             .mobile-nav { display: flex !important; }
             .mobile-header { display: block !important; }
-            .stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
-            .modal-content { width: 95% !important; margin: 10px !important; }
         }
         .mobile-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; background: var(--primary); padding: 10px 0; z-index: 999; justify-content: space-around; }
         .mobile-nav-item { color: white; text-align: center; font-size: 11px; cursor: pointer; padding: 5px 10px; }
@@ -61,7 +54,6 @@
     <div id="root"></div>
     
     <script>
-        // Firebase Configuration
         const firebaseConfig = {
             apiKey: "AIzaSyBAuraY_LgiQc9Qia5jkdDmzrZ3sh_OxvM",
             authDomain: "ceylonregal-7c5c7.firebaseapp.com",
@@ -71,8 +63,6 @@
             messagingSenderId: "690880467411",
             appId: "1:690880467411:web:066eac56457c9a61d59f26"
         };
-
-        // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
     </script>
@@ -80,8 +70,7 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // ================== UTILITY FUNCTIONS ==================
-        const formatCurrency = (amount, currency) => `${currency} ${Number(amount).toLocaleString()}`;
+        const formatCurrency = (amount, currency) => currency + ' ' + Number(amount).toLocaleString();
         const formatDate = (date) => date ? new Date(date).toISOString().split('T')[0] : '';
         
         const addMonths = (date, months) => {
@@ -98,14 +87,14 @@
             return Math.ceil((targetDate - today) / (1000 * 60 * 60 * 24));
         };
 
-        const generatePayouts = (members, paidStatus = {}) => {
+        const generatePayouts = (members, paidStatus) => {
             const payouts = [];
             Object.values(members || {}).forEach(member => {
                 if (!member.depositDate) return;
                 for (let month = 1; month <= 12; month++) {
                     const payoutDate = addMonths(new Date(member.depositDate), month);
                     const daysLeft = getDaysLeft(payoutDate);
-                    const payoutKey = `${member.id}-${month}`;
+                    const payoutKey = member.id + '-' + month;
                     payouts.push({
                         key: payoutKey,
                         memberId: member.id,
@@ -122,11 +111,8 @@
                     });
                 }
             });
-            // Sort by Member ID first, then by Month
             return payouts.sort((a, b) => {
-                if (a.memberId !== b.memberId) {
-                    return a.memberId.localeCompare(b.memberId);
-                }
+                if (a.memberId !== b.memberId) return a.memberId.localeCompare(b.memberId);
                 return a.month - b.month;
             });
         };
@@ -134,155 +120,121 @@
         const generateMemberId = (members) => {
             const memberArray = Object.values(members || {});
             const maxId = memberArray.reduce((max, m) => {
-                const num = parseInt(m.id.replace('M', ''));
+                const num = parseInt(m.id?.replace('M', '') || '0');
                 return num > max ? num : max;
             }, 0);
-            return `M${String(maxId + 1).padStart(3, '0')}`;
+            return 'M' + String(maxId + 1).padStart(3, '0');
         };
 
-        // ================== MAIN APP ==================
         const App = () => {
             const [activeTab, setActiveTab] = useState('dashboard');
             const [members, setMembers] = useState({});
             const [paidStatus, setPaidStatus] = useState({});
-            const [invoices, setInvoices] = useState({});
             const [payouts, setPayouts] = useState([]);
             const [showModal, setShowModal] = useState(false);
             const [editingMember, setEditingMember] = useState(null);
             const [selectedMember, setSelectedMember] = useState(null);
-            const [selectedInvoice, setSelectedInvoice] = useState(null);
-            const [showInvoiceModal, setShowInvoiceModal] = useState(false);
             const [searchTerm, setSearchTerm] = useState('');
             const [filterStatus, setFilterStatus] = useState('all');
             const [isOnline, setIsOnline] = useState(true);
             const [isLoading, setIsLoading] = useState(true);
             const [lastSync, setLastSync] = useState(null);
+            const [telegramSent, setTelegramSent] = useState(false);
 
-            // Firebase Real-time Listeners
             useEffect(() => {
                 setIsLoading(true);
-                
-                // Listen for members changes
                 const membersRef = database.ref('members');
                 membersRef.on('value', (snapshot) => {
-                    const data = snapshot.val() || {};
-                    setMembers(data);
+                    setMembers(snapshot.val() || {});
                     setLastSync(new Date());
                     setIsLoading(false);
                 });
-
-                // Listen for paid status changes
                 const paidRef = database.ref('paidStatus');
                 paidRef.on('value', (snapshot) => {
-                    const data = snapshot.val() || {};
-                    setPaidStatus(data);
+                    setPaidStatus(snapshot.val() || {});
                 });
-
-                // Listen for invoices changes
-                const invoicesRef = database.ref('invoices');
-                invoicesRef.on('value', (snapshot) => {
-                    const data = snapshot.val() || {};
-                    setInvoices(data);
-                });
-
-                // Connection state
                 const connectedRef = database.ref('.info/connected');
                 connectedRef.on('value', (snapshot) => {
                     setIsOnline(snapshot.val() === true);
                 });
-
-                return () => {
-                    membersRef.off();
-                    paidRef.off();
-                    invoicesRef.off();
-                    connectedRef.off();
-                };
+                return () => { membersRef.off(); paidRef.off(); connectedRef.off(); };
             }, []);
 
-            // Generate payouts when members or paid status changes
             useEffect(() => {
                 setPayouts(generatePayouts(members, paidStatus));
             }, [members, paidStatus]);
 
-            // Auto-send Telegram reminder once per day
-            const [telegramSent, setTelegramSent] = useState(false);
-            
+            // Telegram Config
+            const TELEGRAM_BOT_TOKEN = '8589589962:AAFec64E9n9NKlHOIvmitw-hkp3yiPNPcew';
+            const TELEGRAM_CHAT_ID = '1258072892';
+
+            // Auto-send Telegram
             useEffect(() => {
                 if (payouts.length === 0 || telegramSent) return;
-                
                 const today = new Date().toDateString();
                 const lastSent = localStorage.getItem('ceylon_regal_last_telegram');
-                
-                // Only send if not already sent today
-                if (lastSent === today) {
-                    setTelegramSent(true);
-                    return;
-                }
-                
+                if (lastSent === today) { setTelegramSent(true); return; }
                 const upcoming = payouts.filter(p => p.isUpcoming && p.status === 'Pending');
-                
                 if (upcoming.length > 0) {
-                    // Mark as sent immediately to prevent duplicates
                     setTelegramSent(true);
                     localStorage.setItem('ceylon_regal_last_telegram', today);
-                    
-                    // Auto send after 2 seconds
-                    setTimeout(() => {
-                        autoSendTelegramReminder(upcoming);
-                    }, 2000);
+                    setTimeout(() => autoSendTelegram(upcoming), 2000);
                 }
             }, [payouts, telegramSent]);
 
-            // Auto-send function (silent, no alert)
-            const autoSendTelegramReminder = async (upcoming) => {
-                const today = new Date().toDateString();
-                
-                let message = '🔔 *CEYLON REGAL - DAILY REMINDER*\n';
-                message += '━━━━━━━━━━━━━━━━━━━━\n\n';
-                message += `📅 Upcoming Payouts (${upcoming.length})\n\n`;
-
+            const autoSendTelegram = async (upcoming) => {
+                let message = '🔔 *CEYLON REGAL - DAILY REMINDER*\n━━━━━━━━━━━━━━━━━━━━\n\n';
+                message += '📅 Upcoming Payouts (' + upcoming.length + ')\n\n';
                 upcoming.forEach((p, idx) => {
-                    const daysText = p.daysLeft === 0 ? '⚡ TODAY!' : p.daysLeft === 1 ? '⏰ TOMORROW!' : `${p.daysLeft} days`;
-                    message += `${idx + 1}. *${p.memberName}* (${p.memberId})\n`;
-                    message += `   📆 ${p.payoutDate}\n`;
-                    message += `   💰 ${p.currency} ${p.amount.toLocaleString()}\n`;
-                    message += `   ${daysText}\n\n`;
+                    const daysText = p.daysLeft === 0 ? '⚡ TODAY!' : p.daysLeft === 1 ? '⏰ TOMORROW!' : p.daysLeft + ' days';
+                    message += (idx + 1) + '. *' + p.memberName + '* (' + p.memberId + ')\n';
+                    message += '   📆 ' + p.payoutDate + '\n';
+                    message += '   💰 ' + p.currency + ' ' + p.amount.toLocaleString() + '\n';
+                    message += '   ' + daysText + '\n\n';
                 });
-
-                message += '━━━━━━━━━━━━━━━━━━━━\n';
-                message += '🏆 Ceylon Regal Investment\n';
-                message += `📲 Auto-sent: ${new Date().toLocaleTimeString()}`;
-
+                message += '━━━━━━━━━━━━━━━━━━━━\n🏆 Ceylon Regal Investment';
                 try {
-                    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+                    await fetch('https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/sendMessage', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            chat_id: TELEGRAM_CHAT_ID,
-                            text: message,
-                            parse_mode: 'Markdown'
-                        })
+                        body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: message, parse_mode: 'Markdown' })
                     });
-
-                    const result = await response.json();
-                    if (result.ok) {
-                        // Save today's date so we don't send again
-                        localStorage.setItem('ceylon_regal_last_telegram', today);
-                        console.log('✅ Auto Telegram reminder sent!');
-                    }
-                } catch (error) {
-                    console.log('❌ Auto send failed:', error.message);
-                }
+                } catch (e) { console.log('Telegram error:', e); }
             };
 
-            // Stats
+            const sendTelegramReminder = async () => {
+                const upcoming = payouts.filter(p => p.isUpcoming && p.status === 'Pending');
+                if (upcoming.length === 0) { alert('✅ No upcoming payouts in next 7 days!'); return; }
+                let message = '🔔 *CEYLON REGAL - UPCOMING PAYOUTS*\n━━━━━━━━━━━━━━━━━━━━\n\n';
+                message += '📅 Next 7 Days (' + upcoming.length + ' payments)\n\n';
+                upcoming.forEach((p, idx) => {
+                    const daysText = p.daysLeft === 0 ? '⚡ TODAY!' : p.daysLeft + ' days';
+                    message += (idx + 1) + '. *' + p.memberName + '* (' + p.memberId + ')\n';
+                    message += '   📆 ' + p.payoutDate + '\n';
+                    message += '   💰 ' + p.currency + ' ' + p.amount.toLocaleString() + '\n';
+                    message += '   ⏰ ' + daysText + '\n\n';
+                });
+                message += '━━━━━━━━━━━━━━━━━━━━\n🏆 Ceylon Regal Investment';
+                try {
+                    const response = await fetch('https://api.telegram.org/bot' + TELEGRAM_BOT_TOKEN + '/sendMessage', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: message, parse_mode: 'Markdown' })
+                    });
+                    const result = await response.json();
+                    if (result.ok) {
+                        localStorage.setItem('ceylon_regal_last_telegram', new Date().toDateString());
+                        alert('✅ Telegram message sent!');
+                    } else { alert('❌ Failed: ' + result.description); }
+                } catch (e) { alert('❌ Error: ' + e.message); }
+            };
+
             const memberArray = Object.values(members || {});
             const totalLKR = memberArray.filter(m => m.currency === 'LKR').reduce((sum, m) => sum + Number(m.amount || 0), 0);
             const totalUSD = memberArray.filter(m => m.currency === 'USD').reduce((sum, m) => sum + Number(m.amount || 0), 0);
             const upcomingPayouts = payouts.filter(p => p.isUpcoming && p.status === 'Pending');
             const overduePayouts = payouts.filter(p => p.isOverdue && p.status === 'Pending');
 
-            // Member form
             const [formData, setFormData] = useState({
                 name: '', phone: '', amount: '', currency: 'LKR', depositDate: '', returnPct: 20, status: 'Active', notes: ''
             });
@@ -304,256 +256,53 @@
                     alert('Please fill Name, Amount and Deposit Date');
                     return;
                 }
-                
                 if (editingMember) {
-                    // Update existing member
-                    database.ref(`members/${editingMember.id}`).update({
-                        ...formData,
-                        amount: Number(formData.amount)
-                    });
+                    database.ref('members/' + editingMember.id).update({ ...formData, amount: Number(formData.amount) });
                 } else {
-                    // Add new member
                     const newId = generateMemberId(members);
-                    const memberData = {
-                        ...formData,
-                        id: newId,
-                        amount: Number(formData.amount),
-                        createdAt: new Date().toISOString()
-                    };
-                    database.ref(`members/${newId}`).set(memberData);
-                    
-                    // Auto-generate invoice
-                    const invoiceNumber = generateInvoiceNumber();
-                    const invoiceData = {
-                        invoiceNo: invoiceNumber,
-                        memberId: newId,
-                        memberName: formData.name,
-                        phone: formData.phone,
-                        amount: Number(formData.amount),
-                        currency: formData.currency,
-                        borrowDate: formData.depositDate,
-                        createdAt: new Date().toISOString()
-                    };
-                    database.ref(`invoices/${invoiceNumber}`).set(invoiceData);
+                    database.ref('members/' + newId).set({ ...formData, id: newId, amount: Number(formData.amount), createdAt: new Date().toISOString() });
                 }
                 setShowModal(false);
             };
 
-            // Generate Invoice Number
-            const generateInvoiceNumber = () => {
-                const year = new Date().getFullYear();
-                const invoiceArray = Object.keys(invoices || {});
-                const thisYearInvoices = invoiceArray.filter(inv => inv.startsWith(`INV-${year}`));
-                const nextNum = thisYearInvoices.length + 1;
-                return `INV-${year}-${String(nextNum).padStart(4, '0')}`;
-            };
-
             const deleteMember = (id) => {
-                if (confirm('Are you sure you want to delete this member?')) {
-                    database.ref(`members/${id}`).remove();
-                    // Also remove related paid status
-                    for (let month = 1; month <= 12; month++) {
-                        database.ref(`paidStatus/${id}-${month}`).remove();
-                    }
+                if (confirm('Delete this member?')) {
+                    database.ref('members/' + id).remove();
+                    for (let m = 1; m <= 12; m++) database.ref('paidStatus/' + id + '-' + m).remove();
                 }
             };
 
-            const togglePaidStatus = (payoutKey) => {
-                const currentStatus = paidStatus[payoutKey];
-                const newStatus = currentStatus === 'Paid' ? 'Pending' : 'Paid';
-                database.ref(`paidStatus/${payoutKey}`).set(newStatus);
+            const togglePaidStatus = (key) => {
+                const newStatus = paidStatus[key] === 'Paid' ? 'Pending' : 'Paid';
+                database.ref('paidStatus/' + key).set(newStatus);
             };
 
             const generateWhatsAppCard = (member) => {
                 if (!member) return '';
                 const monthlyReturn = member.amount * member.returnPct / 100;
-                let message = `DETAILS OF MR/MS ${member.name}\n\n`;
-                message += `DEPOSIT AMOUNT :${member.currency} ${Number(member.amount).toLocaleString()}\n`;
-                message += `MONTHLY RETURN PERCENTAGE:${member.returnPct}%\n`;
-                message += `MONTHLY RETURN AMOUNT :${member.currency} ${monthlyReturn.toLocaleString()}\n`;
-                message += `DEPOSIT DATE : ${member.depositDate}\n`;
-                message += `PACKAGE VALID MONTH'S : 12\n`;
-                message += `**********\n`;
-                message += `PAYOUT DATE.\n`;
-                
+                let msg = 'DETAILS OF MR/MS ' + member.name + '\n\n';
+                msg += 'DEPOSIT AMOUNT :' + member.currency + ' ' + Number(member.amount).toLocaleString() + '\n';
+                msg += 'MONTHLY RETURN PERCENTAGE:' + member.returnPct + '%\n';
+                msg += 'MONTHLY RETURN AMOUNT :' + member.currency + ' ' + monthlyReturn.toLocaleString() + '\n';
+                msg += 'DEPOSIT DATE : ' + member.depositDate + '\n';
+                msg += 'PACKAGE VALID MONTHS : 12\n**********\nPAYOUT DATE.\n';
                 for (let i = 1; i <= 12; i++) {
-                    const payoutDate = addMonths(new Date(member.depositDate), i);
-                    const payoutKey = `${member.id}-${i}`;
-                    const isPaid = paidStatus[payoutKey] === 'Paid';
-                    message += `${String(i).padStart(2, '0')}) ${formatDate(payoutDate)} :${member.currency} ${monthlyReturn.toLocaleString()}${isPaid ? ' Paid*' : ''}\n`;
+                    const pd = addMonths(new Date(member.depositDate), i);
+                    const pk = member.id + '-' + i;
+                    const isPaid = paidStatus[pk] === 'Paid';
+                    msg += String(i).padStart(2, '0') + ') ' + formatDate(pd) + ' :' + member.currency + ' ' + monthlyReturn.toLocaleString() + (isPaid ? ' Paid*' : '') + '\n';
                 }
-                message += `\nTHANKS FOR JOIN US.`;
-                return message;
+                msg += '\nTHANKS FOR JOIN US.';
+                return msg;
             };
 
-            const copyToClipboard = (text) => {
-                navigator.clipboard.writeText(text);
-                alert('✅ Copied! Paste in WhatsApp.');
-            };
-
-            // Invoice Functions
-            const generateInvoiceHTML = (invoice) => {
-                return `
-                    <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; border: 2px solid #1a365d; border-radius: 10px; overflow: hidden;">
-                        <!-- Header -->
-                        <div style="background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%); color: white; padding: 20px; text-align: center;">
-                            <h1 style="margin: 0; font-size: 24px;">🏆 KVAS Chanaka Jayanethra</h1>
-                        </div>
-                        
-                        <!-- Invoice Info -->
-                        <div style="background: #ffd700; color: #1a365d; padding: 15px; display: flex; justify-content: space-between;">
-                            <div>
-                                <strong style="font-size: 18px;">INVOICE</strong>
-                            </div>
-                            <div style="text-align: right;">
-                                <div><strong>${invoice.invoiceNo}</strong></div>
-                                <div style="font-size: 12px;">Date: ${formatDate(new Date())}</div>
-                            </div>
-                        </div>
-                        
-                        <!-- Borrower Details -->
-                        <div style="padding: 15px; background: #e3f2fd;">
-                            <h3 style="margin: 0 0 10px 0; color: #1a365d; font-size: 14px;">👤 BORROWER DETAILS</h3>
-                            <table style="width: 100%; font-size: 14px;">
-                                <tr><td style="padding: 5px 0;"><strong>Name</strong></td><td>: ${invoice.memberName}</td></tr>
-                                <tr><td style="padding: 5px 0;"><strong>Phone</strong></td><td>: ${invoice.phone || 'N/A'}</td></tr>
-                            </table>
-                        </div>
-                        
-                        <!-- Loan Details -->
-                        <div style="padding: 15px; background: #e8f5e9;">
-                            <h3 style="margin: 0 0 10px 0; color: #1a365d; font-size: 14px;">💰 LOAN DETAILS</h3>
-                            <table style="width: 100%; font-size: 14px;">
-                                <tr><td style="padding: 5px 0;"><strong>Borrowing Amount</strong></td><td>: ${invoice.currency} ${Number(invoice.amount).toLocaleString()}</td></tr>
-                                <tr><td style="padding: 5px 0;"><strong>Borrow Date</strong></td><td>: ${invoice.borrowDate}</td></tr>
-                            </table>
-                        </div>
-                        
-                        <!-- Contact -->
-                        <div style="padding: 15px; background: #f5f5f5; text-align: center;">
-                            <p style="margin: 0; font-size: 14px;">📞 Contact: <strong>077-1904395</strong></p>
-                        </div>
-                        
-                        <!-- Signature -->
-                        <div style="padding: 20px; border-top: 2px dashed #ccc;">
-                            <p style="margin: 0; font-size: 14px;">✍️ Signature: <strong style="font-family: cursive; font-size: 18px;">Chanaka Jayanethra</strong></p>
-                        </div>
-                        
-                        <!-- Footer -->
-                        <div style="background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%); color: white; padding: 10px; text-align: center; font-size: 12px;">
-                            Thank you for your trust!
-                        </div>
-                    </div>
-                `;
-            };
-
-            const downloadInvoicePDF = (invoice) => {
-                const invoiceHTML = generateInvoiceHTML(invoice);
-                const printWindow = window.open('', '_blank');
-                printWindow.document.write(`
-                    <html>
-                        <head>
-                            <title>Invoice - ${invoice.invoiceNo}</title>
-                            <style>
-                                body { margin: 20px; }
-                                @media print {
-                                    body { margin: 0; }
-                                }
-                            </style>
-                        </head>
-                        <body>
-                            ${invoiceHTML}
-                            <script>
-                                setTimeout(() => {
-                                    window.print();
-                                }, 500);
-                            </script>
-                        </body>
-                    </html>
-                `);
-                printWindow.document.close();
-            };
-
-            const sendInvoiceWhatsApp = (invoice) => {
-                let message = `📄 *INVOICE - ${invoice.invoiceNo}*\n`;
-                message += `━━━━━━━━━━━━━━━━━━━━\n\n`;
-                message += `🏆 *KVAS Chanaka Jayanethra*\n\n`;
-                message += `👤 *BORROWER DETAILS*\n`;
-                message += `Name: ${invoice.memberName}\n`;
-                message += `Phone: ${invoice.phone || 'N/A'}\n\n`;
-                message += `💰 *LOAN DETAILS*\n`;
-                message += `Borrowing Amount: ${invoice.currency} ${Number(invoice.amount).toLocaleString()}\n`;
-                message += `Borrow Date: ${invoice.borrowDate}\n\n`;
-                message += `━━━━━━━━━━━━━━━━━━━━\n`;
-                message += `📞 Contact: 077-1904395\n`;
-                message += `✍️ Signature: Chanaka Jayanethra\n`;
-                message += `━━━━━━━━━━━━━━━━━━━━`;
-                
-                navigator.clipboard.writeText(message);
-                alert('✅ Invoice copied! Paste in WhatsApp.');
-            };
-
-            // Telegram Bot Configuration
-            const TELEGRAM_BOT_TOKEN = '8589589962:AAFec64E9n9NKlHOIvmitw-hkp3yiPNPcew';
-            const TELEGRAM_CHAT_ID = '1258072892';
-
-            const sendTelegramReminder = async () => {
-                // Get upcoming payouts (next 7 days)
-                const upcoming = payouts.filter(p => p.isUpcoming && p.status === 'Pending');
-                
-                if (upcoming.length === 0) {
-                    alert('✅ No upcoming payouts in next 7 days!');
-                    return;
-                }
-
-                // Build message
-                let message = '🔔 *CEYLON REGAL - UPCOMING PAYOUTS*\n';
-                message += '━━━━━━━━━━━━━━━━━━━━\n\n';
-                message += `📅 Next 7 Days (${upcoming.length} payments)\n\n`;
-
-                upcoming.forEach((p, idx) => {
-                    const daysText = p.daysLeft === 0 ? '⚡ TODAY!' : `${p.daysLeft} days`;
-                    message += `${idx + 1}. *${p.memberName}* (${p.memberId})\n`;
-                    message += `   📆 ${p.payoutDate}\n`;
-                    message += `   💰 ${p.currency} ${p.amount.toLocaleString()}\n`;
-                    message += `   ⏰ ${daysText}\n\n`;
-                });
-
-                message += '━━━━━━━━━━━━━━━━━━━━\n';
-                message += '🏆 Ceylon Regal Investment';
-
-                try {
-                    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            chat_id: TELEGRAM_CHAT_ID,
-                            text: message,
-                            parse_mode: 'Markdown'
-                        })
-                    });
-
-                    const result = await response.json();
-                    if (result.ok) {
-                        // Save today's date so auto-send won't trigger
-                        localStorage.setItem('ceylon_regal_last_telegram', new Date().toDateString());
-                        alert('✅ Telegram message sent successfully!');
-                    } else {
-                        alert('❌ Failed to send: ' + result.description);
-                    }
-                } catch (error) {
-                    alert('❌ Error: ' + error.message);
-                }
-            };
+            const copyToClipboard = (text) => { navigator.clipboard.writeText(text); alert('✅ Copied!'); };
 
             const exportData = () => {
                 const data = { members, paidStatus, exportDate: new Date().toISOString() };
                 const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `ceylon_regal_backup_${formatDate(new Date())}.json`;
-                a.click();
+                const a = document.createElement('a'); a.href = url; a.download = 'ceylon_regal_backup_' + formatDate(new Date()) + '.json'; a.click();
                 alert('✅ Backup downloaded!');
             };
 
@@ -561,26 +310,18 @@
                 const file = e.target.files[0];
                 if (file) {
                     const reader = new FileReader();
-                    reader.onload = (e) => {
+                    reader.onload = (ev) => {
                         try {
-                            const data = JSON.parse(e.target.result);
-                            if (data.members) {
-                                // Upload to Firebase
-                                database.ref('members').set(data.members);
-                            }
-                            if (data.paidStatus) {
-                                database.ref('paidStatus').set(data.paidStatus);
-                            }
-                            alert('✅ Data imported to cloud!');
-                        } catch (err) {
-                            alert('❌ Invalid file format');
-                        }
+                            const data = JSON.parse(ev.target.result);
+                            if (data.members) database.ref('members').set(data.members);
+                            if (data.paidStatus) database.ref('paidStatus').set(data.paidStatus);
+                            alert('✅ Data imported!');
+                        } catch (err) { alert('❌ Invalid file'); }
                     };
                     reader.readAsText(file);
                 }
             };
 
-            // Filter payouts
             const filteredPayouts = payouts.filter(p => {
                 const matchesSearch = p.memberName?.toLowerCase().includes(searchTerm.toLowerCase()) || p.memberId.toLowerCase().includes(searchTerm.toLowerCase());
                 if (filterStatus === 'upcoming') return matchesSearch && p.isUpcoming && p.status === 'Pending';
@@ -590,31 +331,12 @@
                 return matchesSearch;
             });
 
-            // Styles
-            const sidebarStyle = {
-                width: '220px', background: 'var(--primary)', color: 'var(--white)',
-                minHeight: '100vh', padding: '20px 0', position: 'fixed', left: 0, top: 0,
-                className: 'sidebar'
-            };
-            const menuItemStyle = (isActive) => ({
-                padding: '14px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px',
-                background: isActive ? 'var(--primary-light)' : 'transparent',
-                borderLeft: isActive ? '4px solid #ffd700' : '4px solid transparent',
-                fontSize: '14px', transition: 'all 0.2s'
-            });
-            const cardStyle = {
-                background: 'var(--white)', borderRadius: '10px', padding: '20px',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.08)'
-            };
-            const btnPrimary = {
-                background: 'var(--primary)', color: 'white', border: 'none',
-                padding: '10px 20px', borderRadius: '5px', cursor: 'pointer', fontSize: '14px'
-            };
-            const inputStyle = {
-                padding: '10px 12px', border: '1px solid var(--gray-300)', borderRadius: '5px', width: '100%'
-            };
+            const sidebarStyle = { width: '220px', background: 'var(--primary)', color: 'var(--white)', minHeight: '100vh', padding: '20px 0', position: 'fixed', left: 0, top: 0 };
+            const menuItemStyle = (isActive) => ({ padding: '14px 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px', background: isActive ? 'var(--primary-light)' : 'transparent', borderLeft: isActive ? '4px solid #ffd700' : '4px solid transparent', fontSize: '14px' });
+            const cardStyle = { background: 'var(--white)', borderRadius: '10px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' };
+            const btnPrimary = { background: 'var(--primary)', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer', fontSize: '14px' };
+            const inputStyle = { padding: '10px 12px', border: '1px solid var(--gray-300)', borderRadius: '5px', width: '100%' };
 
-            // Loading Screen
             if (isLoading) {
                 return (
                     <div className="loading-overlay">
@@ -627,7 +349,6 @@
 
             return (
                 <div style={{ display: 'flex' }}>
-                    {/* Sidebar */}
                     <div className="sidebar" style={sidebarStyle}>
                         <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--primary-light)', marginBottom: '15px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -636,37 +357,20 @@
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginTop: '8px' }}>
                                 <span className="cloud-badge"><i className="fas fa-cloud"></i> Cloud</span>
-                                <span className={`sync-indicator ${isOnline ? 'sync-online' : 'sync-offline'}`}>
-                                    <i className={`fas ${isOnline ? 'fa-check-circle' : 'fa-exclamation-circle'}`}></i>
+                                <span className={'sync-indicator ' + (isOnline ? 'sync-online' : 'sync-offline')}>
+                                    <i className={'fas ' + (isOnline ? 'fa-check-circle' : 'fa-exclamation-circle')}></i>
                                     {isOnline ? 'Online' : 'Offline'}
                                 </span>
                             </div>
                         </div>
-                        
-                        <div onClick={() => setActiveTab('dashboard')} style={menuItemStyle(activeTab === 'dashboard')}>
-                            <i className="fas fa-chart-pie"></i> Dashboard
-                        </div>
-                        <div onClick={() => setActiveTab('members')} style={menuItemStyle(activeTab === 'members')}>
-                            <i className="fas fa-users"></i> Members
-                        </div>
-                        <div onClick={() => setActiveTab('payouts')} style={menuItemStyle(activeTab === 'payouts')}>
-                            <i className="fas fa-calendar-check"></i> Payout Tracker
-                        </div>
-                        <div onClick={() => setActiveTab('invoices')} style={menuItemStyle(activeTab === 'invoices')}>
-                            <i className="fas fa-file-invoice"></i> Invoices
-                        </div>
-                        <div onClick={() => setActiveTab('card')} style={menuItemStyle(activeTab === 'card')}>
-                            <i className="fab fa-whatsapp"></i> WhatsApp Card
-                        </div>
-                        <div onClick={() => setActiveTab('settings')} style={menuItemStyle(activeTab === 'settings')}>
-                            <i className="fas fa-cog"></i> Backup / Restore
-                        </div>
+                        <div onClick={() => setActiveTab('dashboard')} style={menuItemStyle(activeTab === 'dashboard')}><i className="fas fa-chart-pie"></i> Dashboard</div>
+                        <div onClick={() => setActiveTab('members')} style={menuItemStyle(activeTab === 'members')}><i className="fas fa-users"></i> Members</div>
+                        <div onClick={() => setActiveTab('payouts')} style={menuItemStyle(activeTab === 'payouts')}><i className="fas fa-calendar-check"></i> Payout Tracker</div>
+                        <div onClick={() => setActiveTab('card')} style={menuItemStyle(activeTab === 'card')}><i className="fab fa-whatsapp"></i> WhatsApp Card</div>
+                        <div onClick={() => setActiveTab('settings')} style={menuItemStyle(activeTab === 'settings')}><i className="fas fa-cog"></i> Backup / Restore</div>
                     </div>
 
-                    {/* Main Content */}
                     <div className="main-content" style={{ marginLeft: '220px', padding: '25px', paddingBottom: '80px', width: 'calc(100% - 220px)', minHeight: '100vh' }}>
-                        
-                        {/* Mobile Header */}
                         <div className="mobile-header" style={{ display: 'none', background: 'var(--primary)', color: 'white', padding: '15px', marginBottom: '20px', marginLeft: '-15px', marginRight: '-15px', marginTop: '-15px', textAlign: 'center' }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                                 <i className="fas fa-crown" style={{ color: '#ffd700', fontSize: '20px' }}></i>
@@ -674,121 +378,79 @@
                                 <span className="cloud-badge"><i className="fas fa-cloud"></i> Cloud</span>
                             </div>
                         </div>
-                        
-                        {/* ================== DASHBOARD ================== */}
+
                         {activeTab === 'dashboard' && (
                             <div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px', flexWrap: 'wrap', gap: '10px' }}>
                                     <h2 style={{ color: 'var(--primary)' }}>📊 Dashboard</h2>
-                                    {lastSync && (
-                                        <span style={{ fontSize: '12px', color: 'var(--gray-600)' }}>
-                                            <i className="fas fa-sync"></i> Last sync: {lastSync.toLocaleTimeString()}
-                                        </span>
-                                    )}
+                                    {lastSync && <span style={{ fontSize: '12px', color: 'var(--gray-600)' }}><i className="fas fa-sync"></i> Last sync: {lastSync.toLocaleTimeString()}</span>}
                                 </div>
-                                
-                                {/* Stats */}
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '15px', marginBottom: '25px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px', marginBottom: '25px' }}>
                                     {[
                                         { label: 'Total Members', value: memberArray.length, color: 'var(--primary)', icon: 'fa-users' },
-                                        { label: 'Total LKR', value: `LKR ${totalLKR.toLocaleString()}`, color: 'var(--success)', icon: 'fa-money-bill' },
-                                        { label: 'Total USD', value: `USD ${totalUSD.toLocaleString()}`, color: 'var(--accent)', icon: 'fa-dollar-sign' },
+                                        { label: 'Total LKR', value: 'LKR ' + totalLKR.toLocaleString(), color: 'var(--success)', icon: 'fa-money-bill' },
+                                        { label: 'Total USD', value: 'USD ' + totalUSD.toLocaleString(), color: 'var(--accent)', icon: 'fa-dollar-sign' },
                                         { label: 'Upcoming (7 Days)', value: upcomingPayouts.length, color: 'var(--warning)', icon: 'fa-clock' },
                                         { label: 'Overdue', value: overduePayouts.length, color: 'var(--danger)', icon: 'fa-exclamation-circle' },
                                     ].map((stat, idx) => (
-                                        <div key={idx} style={{ ...cardStyle, borderLeft: `4px solid ${stat.color}` }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <div>
-                                                    <p style={{ color: 'var(--gray-600)', fontSize: '12px', marginBottom: '5px' }}>{stat.label}</p>
-                                                    <p style={{ fontSize: '22px', fontWeight: 'bold', color: stat.color }}>{stat.value}</p>
-                                                </div>
-                                                <i className={`fas ${stat.icon}`} style={{ fontSize: '24px', color: stat.color, opacity: 0.3 }}></i>
-                                            </div>
+                                        <div key={idx} style={{ ...cardStyle, borderLeft: '4px solid ' + stat.color }}>
+                                            <p style={{ color: 'var(--gray-600)', fontSize: '12px', marginBottom: '5px' }}>{stat.label}</p>
+                                            <p style={{ fontSize: '20px', fontWeight: 'bold', color: stat.color }}>{stat.value}</p>
                                         </div>
                                     ))}
                                 </div>
-
-                                {/* Upcoming */}
                                 <div style={{ ...cardStyle, marginBottom: '20px' }}>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-                                        <h3 style={{ color: 'var(--warning)', fontSize: '16px' }}>
-                                            <i className="fas fa-clock"></i> ⚠️ Upcoming Payouts (Next 7 Days)
-                                        </h3>
-                                        <button onClick={sendTelegramReminder} style={{ background: '#0088cc', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '5px', cursor: 'pointer', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '10px' }}>
+                                        <h3 style={{ color: 'var(--warning)', fontSize: '16px' }}><i className="fas fa-clock"></i> ⚠️ Upcoming Payouts (Next 7 Days)</h3>
+                                        <button onClick={sendTelegramReminder} style={{ background: '#0088cc', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '5px', cursor: 'pointer', fontSize: '13px' }}>
                                             <i className="fab fa-telegram"></i> Send Reminder
                                         </button>
                                     </div>
-                                    {upcomingPayouts.length === 0 ? (
-                                        <p style={{ color: 'var(--gray-600)', padding: '20px', textAlign: 'center' }}>✅ No upcoming payouts</p>
-                                    ) : (
+                                    {upcomingPayouts.length > 0 ? (
                                         <div style={{ overflowX: 'auto' }}>
                                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                                <thead>
-                                                    <tr style={{ background: '#fef3c7' }}>
-                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Member</th>
-                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Payout Date</th>
-                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Amount</th>
-                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Days</th>
-                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Action</th>
-                                                    </tr>
-                                                </thead>
+                                                <thead><tr style={{ background: 'var(--warning)', color: 'white' }}>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Member</th>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Payout Date</th>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Amount</th>
+                                                    <th style={{ padding: '10px', textAlign: 'center' }}>Days</th>
+                                                    <th style={{ padding: '10px', textAlign: 'center' }}>Action</th>
+                                                </tr></thead>
                                                 <tbody>
-                                                    {upcomingPayouts.slice(0, 10).map((p, idx) => (
+                                                    {upcomingPayouts.map((p, idx) => (
                                                         <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)' }}>
                                                             <td style={{ padding: '10px' }}><strong>{p.memberId}</strong> - {p.memberName}</td>
                                                             <td style={{ padding: '10px' }}>{p.payoutDate}</td>
-                                                            <td style={{ padding: '10px', fontWeight: '600', color: 'var(--success)' }}>{formatCurrency(p.amount, p.currency)}</td>
-                                                            <td style={{ padding: '10px' }}>
-                                                                <span style={{ background: 'var(--warning)', color: 'white', padding: '2px 8px', borderRadius: '10px', fontSize: '11px' }}>
-                                                                    {p.daysLeft === 0 ? 'Today!' : `${p.daysLeft} days`}
-                                                                </span>
-                                                            </td>
-                                                            <td style={{ padding: '10px' }}>
-                                                                <button onClick={() => togglePaidStatus(p.key)} style={{ ...btnPrimary, background: 'var(--success)', padding: '5px 12px', fontSize: '12px' }}>
-                                                                    Mark Paid
-                                                                </button>
-                                                            </td>
+                                                            <td style={{ padding: '10px', color: 'var(--success)' }}>{p.currency} {p.amount.toLocaleString()}</td>
+                                                            <td style={{ padding: '10px', textAlign: 'center' }}><span style={{ background: p.daysLeft <= 2 ? 'var(--danger)' : 'var(--warning)', color: 'white', padding: '3px 8px', borderRadius: '10px', fontSize: '12px' }}>{p.daysLeft} days</span></td>
+                                                            <td style={{ padding: '10px', textAlign: 'center' }}><button onClick={() => togglePaidStatus(p.key)} style={{ background: 'var(--success)', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Mark Paid</button></td>
                                                         </tr>
                                                     ))}
                                                 </tbody>
                                             </table>
                                         </div>
-                                    )}
+                                    ) : <p style={{ color: 'var(--gray-600)', textAlign: 'center', padding: '20px' }}>✅ No upcoming payouts in next 7 days!</p>}
                                 </div>
-
-                                {/* Overdue */}
                                 {overduePayouts.length > 0 && (
                                     <div style={{ ...cardStyle, borderLeft: '4px solid var(--danger)' }}>
-                                        <h3 style={{ color: 'var(--danger)', marginBottom: '15px', fontSize: '16px' }}>
-                                            <i className="fas fa-exclamation-triangle"></i> 🚨 Overdue Payouts
-                                        </h3>
+                                        <h3 style={{ color: 'var(--danger)', marginBottom: '15px', fontSize: '16px' }}><i className="fas fa-exclamation-triangle"></i> ⚠️ Overdue Payouts</h3>
                                         <div style={{ overflowX: 'auto' }}>
                                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                                <thead>
-                                                    <tr style={{ background: '#fee2e2' }}>
-                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Member</th>
-                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Payout Date</th>
-                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Amount</th>
-                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Overdue</th>
-                                                        <th style={{ padding: '10px', textAlign: 'left', fontSize: '12px' }}>Action</th>
-                                                    </tr>
-                                                </thead>
+                                                <thead><tr style={{ background: 'var(--danger)', color: 'white' }}>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Member</th>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Payout Date</th>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Amount</th>
+                                                    <th style={{ padding: '10px', textAlign: 'center' }}>Overdue</th>
+                                                    <th style={{ padding: '10px', textAlign: 'center' }}>Action</th>
+                                                </tr></thead>
                                                 <tbody>
                                                     {overduePayouts.slice(0, 10).map((p, idx) => (
-                                                        <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)', background: '#fff5f5' }}>
+                                                        <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)' }}>
                                                             <td style={{ padding: '10px' }}><strong>{p.memberId}</strong> - {p.memberName}</td>
                                                             <td style={{ padding: '10px' }}>{p.payoutDate}</td>
-                                                            <td style={{ padding: '10px', fontWeight: '600', color: 'var(--danger)' }}>{formatCurrency(p.amount, p.currency)}</td>
-                                                            <td style={{ padding: '10px' }}>
-                                                                <span style={{ background: 'var(--danger)', color: 'white', padding: '2px 8px', borderRadius: '10px', fontSize: '11px' }}>
-                                                                    {Math.abs(p.daysLeft)} days
-                                                                </span>
-                                                            </td>
-                                                            <td style={{ padding: '10px' }}>
-                                                                <button onClick={() => togglePaidStatus(p.key)} style={{ ...btnPrimary, background: 'var(--success)', padding: '5px 12px', fontSize: '12px' }}>
-                                                                    Mark Paid
-                                                                </button>
-                                                            </td>
+                                                            <td style={{ padding: '10px', color: 'var(--danger)' }}>{p.currency} {p.amount.toLocaleString()}</td>
+                                                            <td style={{ padding: '10px', textAlign: 'center' }}><span style={{ background: 'var(--danger)', color: 'white', padding: '3px 8px', borderRadius: '10px', fontSize: '12px' }}>{Math.abs(p.daysLeft)} days</span></td>
+                                                            <td style={{ padding: '10px', textAlign: 'center' }}><button onClick={() => togglePaidStatus(p.key)} style={{ background: 'var(--success)', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>Mark Paid</button></td>
                                                         </tr>
                                                     ))}
                                                 </tbody>
@@ -799,147 +461,82 @@
                             </div>
                         )}
 
-                        {/* ================== MEMBERS ================== */}
                         {activeTab === 'members' && (
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
-                                    <h2 style={{ color: 'var(--primary)' }}>👥 Members ({memberArray.length})</h2>
-                                    <button onClick={openAddModal} style={{ ...btnPrimary, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                        <i className="fas fa-plus"></i> Add Member
-                                    </button>
+                                    <h2 style={{ color: 'var(--primary)' }}>👥 Members</h2>
+                                    <button onClick={openAddModal} style={btnPrimary}><i className="fas fa-plus"></i> Add Member</button>
                                 </div>
-
                                 <div style={cardStyle}>
-                                    <div style={{ marginBottom: '15px' }}>
-                                        <input 
-                                            placeholder="🔍 Search by name or ID..." 
-                                            value={searchTerm}
-                                            onChange={e => setSearchTerm(e.target.value)}
-                                            style={{ ...inputStyle, maxWidth: '300px' }}
-                                        />
-                                    </div>
+                                    <input placeholder="🔍 Search members..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ ...inputStyle, maxWidth: '300px', marginBottom: '15px' }} />
                                     <div style={{ overflowX: 'auto' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
-                                            <thead>
-                                                <tr style={{ background: 'var(--primary)', color: 'white' }}>
-                                                    <th style={{ padding: '12px', textAlign: 'left' }}>ID</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Name</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Phone</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Amount</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Deposit Date</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Monthly Return</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Status</th>
-                                                    <th style={{ padding: '12px', textAlign: 'center' }}>Actions</th>
-                                                </tr>
-                                            </thead>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
+                                            <thead><tr style={{ background: 'var(--primary)', color: 'white' }}>
+                                                <th style={{ padding: '12px', textAlign: 'left' }}>ID</th>
+                                                <th style={{ padding: '12px', textAlign: 'left' }}>Name</th>
+                                                <th style={{ padding: '12px', textAlign: 'left' }}>Phone</th>
+                                                <th style={{ padding: '12px', textAlign: 'left' }}>Amount</th>
+                                                <th style={{ padding: '12px', textAlign: 'left' }}>Deposit Date</th>
+                                                <th style={{ padding: '12px', textAlign: 'center' }}>Status</th>
+                                                <th style={{ padding: '12px', textAlign: 'center' }}>Actions</th>
+                                            </tr></thead>
                                             <tbody>
                                                 {memberArray.filter(m => m.name?.toLowerCase().includes(searchTerm.toLowerCase()) || m.id.toLowerCase().includes(searchTerm.toLowerCase())).map((member, idx) => (
                                                     <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)' }}>
                                                         <td style={{ padding: '12px', fontWeight: '600', color: 'var(--primary)' }}>{member.id}</td>
                                                         <td style={{ padding: '12px' }}>{member.name}</td>
                                                         <td style={{ padding: '12px' }}>{member.phone}</td>
-                                                        <td style={{ padding: '12px' }}>{formatCurrency(member.amount, member.currency)}</td>
+                                                        <td style={{ padding: '12px', color: 'var(--success)', fontWeight: '600' }}>{formatCurrency(member.amount, member.currency)}</td>
                                                         <td style={{ padding: '12px' }}>{member.depositDate}</td>
-                                                        <td style={{ padding: '12px', color: 'var(--success)', fontWeight: '600' }}>
-                                                            {formatCurrency(member.amount * member.returnPct / 100, member.currency)}
-                                                        </td>
-                                                        <td style={{ padding: '12px' }}>
-                                                            <span style={{ background: member.status === 'Active' ? 'var(--success)' : 'var(--gray-300)', color: member.status === 'Active' ? 'white' : 'var(--gray-800)', padding: '3px 10px', borderRadius: '10px', fontSize: '11px' }}>
-                                                                {member.status}
-                                                            </span>
-                                                        </td>
+                                                        <td style={{ padding: '12px', textAlign: 'center' }}><span style={{ background: member.status === 'Active' ? 'var(--success)' : 'var(--gray-600)', color: 'white', padding: '3px 10px', borderRadius: '10px', fontSize: '12px' }}>{member.status}</span></td>
                                                         <td style={{ padding: '12px', textAlign: 'center' }}>
-                                                            <button onClick={() => openEditModal(member)} style={{ background: 'var(--accent)', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px' }}>
-                                                                <i className="fas fa-edit"></i>
-                                                            </button>
-                                                            <button onClick={() => deleteMember(member.id)} style={{ background: 'var(--danger)', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer' }}>
-                                                                <i className="fas fa-trash"></i>
-                                                            </button>
+                                                            <button onClick={() => openEditModal(member)} style={{ background: 'var(--accent)', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px', fontSize: '12px' }}><i className="fas fa-edit"></i></button>
+                                                            <button onClick={() => deleteMember(member.id)} style={{ background: 'var(--danger)', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}><i className="fas fa-trash"></i></button>
                                                         </td>
                                                     </tr>
                                                 ))}
                                             </tbody>
                                         </table>
-                                        {memberArray.length === 0 && (
-                                            <p style={{ textAlign: 'center', padding: '40px', color: 'var(--gray-600)' }}>No members yet. Click "Add Member" to start!</p>
-                                        )}
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        {/* ================== PAYOUTS ================== */}
                         {activeTab === 'payouts' && (
                             <div>
                                 <h2 style={{ color: 'var(--primary)', marginBottom: '20px' }}>📅 Payout Tracker</h2>
-                                
                                 <div style={cardStyle}>
                                     <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', flexWrap: 'wrap' }}>
-                                        <input 
-                                            placeholder="🔍 Search..." 
-                                            value={searchTerm}
-                                            onChange={e => setSearchTerm(e.target.value)}
-                                            style={{ ...inputStyle, maxWidth: '200px' }}
-                                        />
-                                        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...inputStyle, maxWidth: '180px' }}>
+                                        <input placeholder="🔍 Search..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ ...inputStyle, maxWidth: '200px' }} />
+                                        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} style={{ ...inputStyle, maxWidth: '150px' }}>
                                             <option value="all">All Payouts</option>
-                                            <option value="upcoming">⚠️ Upcoming (7 Days)</option>
-                                            <option value="overdue">🚨 Overdue</option>
-                                            <option value="pending">⏳ Pending</option>
-                                            <option value="paid">✅ Paid</option>
+                                            <option value="upcoming">Upcoming</option>
+                                            <option value="overdue">Overdue</option>
+                                            <option value="paid">Paid</option>
+                                            <option value="pending">Pending</option>
                                         </select>
                                     </div>
-                                    <div style={{ overflowX: 'auto', maxHeight: '600px', overflowY: 'auto' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '800px' }}>
-                                            <thead style={{ position: 'sticky', top: 0 }}>
-                                                <tr style={{ background: 'var(--primary)', color: 'white' }}>
-                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Member</th>
-                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Month</th>
-                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Payout Date</th>
-                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Amount</th>
-                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Days</th>
-                                                    <th style={{ padding: '10px', textAlign: 'left' }}>Status</th>
-                                                    <th style={{ padding: '10px', textAlign: 'center' }}>Action</th>
-                                                </tr>
-                                            </thead>
+                                    <div style={{ overflowX: 'auto' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '700px' }}>
+                                            <thead><tr style={{ background: 'var(--primary)', color: 'white' }}>
+                                                <th style={{ padding: '12px', textAlign: 'left' }}>Member</th>
+                                                <th style={{ padding: '12px', textAlign: 'center' }}>Month</th>
+                                                <th style={{ padding: '12px', textAlign: 'left' }}>Payout Date</th>
+                                                <th style={{ padding: '12px', textAlign: 'left' }}>Amount</th>
+                                                <th style={{ padding: '12px', textAlign: 'center' }}>Days</th>
+                                                <th style={{ padding: '12px', textAlign: 'center' }}>Status</th>
+                                                <th style={{ padding: '12px', textAlign: 'center' }}>Action</th>
+                                            </tr></thead>
                                             <tbody>
-                                                {filteredPayouts.map((p, idx) => (
-                                                    <tr key={idx} style={{ 
-                                                        borderBottom: '1px solid var(--gray-200)',
-                                                        background: p.status === 'Paid' ? '#f0fff4' : p.isOverdue ? '#fff5f5' : p.isUpcoming ? '#fffaf0' : 'white'
-                                                    }}>
-                                                        <td style={{ padding: '10px' }}><strong>{p.memberId}</strong> - {p.memberName}</td>
-                                                        <td style={{ padding: '10px' }}>{p.month}</td>
-                                                        <td style={{ padding: '10px' }}>{p.payoutDate}</td>
-                                                        <td style={{ padding: '10px', fontWeight: '600' }}>{formatCurrency(p.amount, p.currency)}</td>
-                                                        <td style={{ padding: '10px' }}>
-                                                            {p.status === 'Paid' ? (
-                                                                <span style={{ color: 'var(--success)' }}>-</span>
-                                                            ) : (
-                                                                <span style={{ 
-                                                                    background: p.isOverdue ? 'var(--danger)' : p.isUpcoming ? 'var(--warning)' : 'var(--gray-300)',
-                                                                    color: p.isOverdue || p.isUpcoming ? 'white' : 'var(--gray-800)',
-                                                                    padding: '2px 8px', borderRadius: '10px', fontSize: '11px'
-                                                                }}>
-                                                                    {p.isOverdue ? `${Math.abs(p.daysLeft)} overdue` : p.daysLeft === 0 ? 'Today!' : `${p.daysLeft} days`}
-                                                                </span>
-                                                            )}
-                                                        </td>
-                                                        <td style={{ padding: '10px' }}>
-                                                            <span style={{ 
-                                                                background: p.status === 'Paid' ? 'var(--success)' : 'var(--gray-300)',
-                                                                color: p.status === 'Paid' ? 'white' : 'var(--gray-800)',
-                                                                padding: '3px 10px', borderRadius: '10px', fontSize: '11px'
-                                                            }}>{p.status}</span>
-                                                        </td>
-                                                        <td style={{ padding: '10px', textAlign: 'center' }}>
-                                                            <button onClick={() => togglePaidStatus(p.key)} style={{
-                                                                background: p.status === 'Paid' ? 'var(--gray-600)' : 'var(--success)',
-                                                                color: 'white', border: 'none', padding: '5px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px'
-                                                            }}>
-                                                                {p.status === 'Paid' ? 'Undo' : 'Mark Paid'}
-                                                            </button>
-                                                        </td>
+                                                {filteredPayouts.slice(0, 100).map((p, idx) => (
+                                                    <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)', background: p.isOverdue && p.status === 'Pending' ? '#fff5f5' : p.isUpcoming && p.status === 'Pending' ? '#fffff0' : 'white' }}>
+                                                        <td style={{ padding: '12px' }}><strong>{p.memberId}</strong> - {p.memberName}</td>
+                                                        <td style={{ padding: '12px', textAlign: 'center' }}>{p.month}</td>
+                                                        <td style={{ padding: '12px' }}>{p.payoutDate}</td>
+                                                        <td style={{ padding: '12px', color: 'var(--success)' }}>{p.currency} {p.amount.toLocaleString()}</td>
+                                                        <td style={{ padding: '12px', textAlign: 'center' }}>{p.status === 'Paid' ? '-' : <span style={{ background: p.isOverdue ? 'var(--danger)' : p.isUpcoming ? 'var(--warning)' : 'var(--gray-600)', color: 'white', padding: '3px 8px', borderRadius: '10px', fontSize: '12px' }}>{p.daysLeft} days</span>}</td>
+                                                        <td style={{ padding: '12px', textAlign: 'center' }}><span style={{ background: p.status === 'Paid' ? 'var(--success)' : 'var(--warning)', color: 'white', padding: '3px 10px', borderRadius: '10px', fontSize: '12px' }}>{p.status}</span></td>
+                                                        <td style={{ padding: '12px', textAlign: 'center' }}><button onClick={() => togglePaidStatus(p.key)} style={{ background: p.status === 'Paid' ? 'var(--gray-600)' : 'var(--success)', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>{p.status === 'Paid' ? 'Undo' : 'Paid'}</button></td>
                                                     </tr>
                                                 ))}
                                             </tbody>
@@ -949,204 +546,88 @@
                             </div>
                         )}
 
-                        {/* ================== WHATSAPP CARD ================== */}
                         {activeTab === 'card' && (
                             <div>
                                 <h2 style={{ color: 'var(--primary)', marginBottom: '20px' }}>📱 WhatsApp Card Generator</h2>
-                                
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '20px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
                                     <div style={cardStyle}>
                                         <h3 style={{ marginBottom: '15px', fontSize: '16px' }}>Select Member</h3>
-                                        <select 
-                                            onChange={e => setSelectedMember(memberArray.find(m => m.id === e.target.value))}
-                                            style={{ ...inputStyle, marginBottom: '20px' }}
-                                        >
+                                        <select onChange={e => setSelectedMember(memberArray.find(m => m.id === e.target.value))} style={{ ...inputStyle, marginBottom: '20px' }}>
                                             <option value="">-- Select Member --</option>
-                                            {memberArray.map(m => (
-                                                <option key={m.id} value={m.id}>{m.id} - {m.name}</option>
-                                            ))}
+                                            {memberArray.map(m => <option key={m.id} value={m.id}>{m.id} - {m.name}</option>)}
                                         </select>
-
                                         {selectedMember && (
                                             <div style={{ background: 'var(--gray-100)', padding: '15px', borderRadius: '5px', fontSize: '14px' }}>
                                                 <p><strong>Name:</strong> {selectedMember.name}</p>
                                                 <p><strong>Phone:</strong> {selectedMember.phone}</p>
                                                 <p><strong>Amount:</strong> {formatCurrency(selectedMember.amount, selectedMember.currency)}</p>
                                                 <p><strong>Monthly Return:</strong> {formatCurrency(selectedMember.amount * selectedMember.returnPct / 100, selectedMember.currency)}</p>
-                                                <p><strong>Deposit Date:</strong> {selectedMember.depositDate}</p>
                                             </div>
                                         )}
                                     </div>
-
                                     <div style={cardStyle}>
-                                        <h3 style={{ marginBottom: '15px', color: '#25d366', fontSize: '16px' }}>
-                                            <i className="fab fa-whatsapp"></i> WhatsApp Message
-                                        </h3>
+                                        <h3 style={{ marginBottom: '15px', color: '#25d366', fontSize: '16px' }}><i className="fab fa-whatsapp"></i> WhatsApp Message</h3>
                                         {selectedMember ? (
-                                            <>
-                                                <pre style={{ 
-                                                    background: 'var(--primary)', color: 'white', padding: '15px', borderRadius: '5px',
-                                                    whiteSpace: 'pre-wrap', fontSize: '12px', maxHeight: '350px', overflow: 'auto', lineHeight: '1.5'
-                                                }}>
-                                                    {generateWhatsAppCard(selectedMember)}
-                                                </pre>
-                                                <button onClick={() => copyToClipboard(generateWhatsAppCard(selectedMember))} style={{
-                                                    width: '100%', marginTop: '15px', background: '#25d366', color: 'white',
-                                                    border: 'none', padding: '12px', borderRadius: '5px', cursor: 'pointer',
-                                                    fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
-                                                }}>
-                                                    <i className="fas fa-copy"></i> Copy to Clipboard
-                                                </button>
-                                            </>
-                                        ) : (
-                                            <p style={{ color: 'var(--gray-600)', textAlign: 'center', padding: '50px' }}>
-                                                Select a member to generate card
-                                            </p>
-                                        )}
+                                            <div>
+                                                <pre style={{ background: 'var(--primary)', color: 'white', padding: '15px', borderRadius: '5px', whiteSpace: 'pre-wrap', fontSize: '12px', maxHeight: '350px', overflow: 'auto' }}>{generateWhatsAppCard(selectedMember)}</pre>
+                                                <button onClick={() => copyToClipboard(generateWhatsAppCard(selectedMember))} style={{ width: '100%', marginTop: '15px', background: '#25d366', color: 'white', border: 'none', padding: '12px', borderRadius: '5px', cursor: 'pointer', fontSize: '14px' }}><i className="fas fa-copy"></i> Copy to Clipboard</button>
+                                            </div>
+                                        ) : <p style={{ color: 'var(--gray-600)', textAlign: 'center', padding: '50px' }}>Select a member to generate card</p>}
                                     </div>
                                 </div>
                             </div>
                         )}
 
-                        {/* ================== INVOICES ================== */}
-                        {activeTab === 'invoices' && (
-                            <div>
-                                <h2 style={{ color: 'var(--primary)', marginBottom: '20px' }}>📄 Invoices</h2>
-                                
-                                <div style={cardStyle}>
-                                    <div style={{ marginBottom: '15px' }}>
-                                        <input 
-                                            placeholder="🔍 Search by invoice no or member name..." 
-                                            value={searchTerm}
-                                            onChange={e => setSearchTerm(e.target.value)}
-                                            style={{ ...inputStyle, maxWidth: '350px' }}
-                                        />
-                                    </div>
-                                    <div style={{ overflowX: 'auto' }}>
-                                        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '700px' }}>
-                                            <thead>
-                                                <tr style={{ background: 'var(--primary)', color: 'white' }}>
-                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Invoice No</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Member</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Amount</th>
-                                                    <th style={{ padding: '12px', textAlign: 'left' }}>Borrow Date</th>
-                                                    <th style={{ padding: '12px', textAlign: 'center' }}>Actions</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {Object.values(invoices || {})
-                                                    .filter(inv => 
-                                                        inv.invoiceNo?.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                                                        inv.memberName?.toLowerCase().includes(searchTerm.toLowerCase())
-                                                    )
-                                                    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-                                                    .map((invoice, idx) => (
-                                                    <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)' }}>
-                                                        <td style={{ padding: '12px', fontWeight: '600', color: 'var(--primary)' }}>{invoice.invoiceNo}</td>
-                                                        <td style={{ padding: '12px' }}>{invoice.memberName}</td>
-                                                        <td style={{ padding: '12px', color: 'var(--success)', fontWeight: '600' }}>{formatCurrency(invoice.amount, invoice.currency)}</td>
-                                                        <td style={{ padding: '12px' }}>{invoice.borrowDate}</td>
-                                                        <td style={{ padding: '12px', textAlign: 'center' }}>
-                                                            <button onClick={() => { setSelectedInvoice(invoice); setShowInvoiceModal(true); }} style={{ background: 'var(--accent)', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px', fontSize: '12px' }}>
-                                                                <i className="fas fa-eye"></i> View
-                                                            </button>
-                                                            <button onClick={() => downloadInvoicePDF(invoice)} style={{ background: 'var(--danger)', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px', fontSize: '12px' }}>
-                                                                <i className="fas fa-file-pdf"></i> PDF
-                                                            </button>
-                                                            <button onClick={() => sendInvoiceWhatsApp(invoice)} style={{ background: '#25d366', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
-                                                                <i className="fab fa-whatsapp"></i>
-                                                            </button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                        {Object.keys(invoices || {}).length === 0 && (
-                                            <p style={{ textAlign: 'center', padding: '40px', color: 'var(--gray-600)' }}>No invoices yet. Add a member to auto-generate invoice!</p>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* ================== SETTINGS ================== */}
                         {activeTab === 'settings' && (
                             <div>
                                 <h2 style={{ color: 'var(--primary)', marginBottom: '20px' }}>⚙️ Backup & Restore</h2>
-                                
                                 <div style={{ ...cardStyle, marginBottom: '20px', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
                                         <i className="fas fa-cloud" style={{ fontSize: '40px' }}></i>
                                         <div>
                                             <h3>☁️ Cloud Sync Active</h3>
-                                            <p style={{ opacity: 0.9, fontSize: '14px' }}>ඔයාගේ data Google Firebase cloud එකේ safe! ඕනේම device එකකින් access කරන්න පුළුවන්.</p>
+                                            <p style={{ opacity: 0.9, fontSize: '14px' }}>Data synced to Firebase cloud!</p>
                                         </div>
                                     </div>
                                 </div>
-
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '20px' }}>
                                     <div style={cardStyle}>
                                         <h3 style={{ marginBottom: '15px', fontSize: '16px' }}><i className="fas fa-download"></i> Download Backup</h3>
-                                        <p style={{ color: 'var(--gray-600)', marginBottom: '15px', fontSize: '14px' }}>
-                                            Extra safety එකට local backup එකක් download කරන්න.
-                                        </p>
-                                        <button onClick={exportData} style={{ ...btnPrimary, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                            <i className="fas fa-download"></i> Download Backup
-                                        </button>
+                                        <button onClick={exportData} style={{ ...btnPrimary }}><i className="fas fa-download"></i> Download Backup</button>
                                     </div>
-
                                     <div style={cardStyle}>
                                         <h3 style={{ marginBottom: '15px', fontSize: '16px' }}><i className="fas fa-upload"></i> Restore from Backup</h3>
-                                        <p style={{ color: 'var(--gray-600)', marginBottom: '15px', fontSize: '14px' }}>
-                                            Backup file එකක් upload කරලා cloud එකට restore කරන්න.
-                                        </p>
                                         <input type="file" accept=".json" onChange={importData} style={{ fontSize: '14px' }} />
                                     </div>
-
                                     <div style={{ ...cardStyle, borderLeft: '4px solid var(--danger)' }}>
                                         <h3 style={{ marginBottom: '15px', fontSize: '16px', color: 'var(--danger)' }}><i className="fas fa-trash"></i> Clear All Data</h3>
-                                        <p style={{ color: 'var(--gray-600)', marginBottom: '15px', fontSize: '14px' }}>
-                                            Cloud එකේ තියෙන all data delete කරනවා. ⚠️ Careful!
-                                        </p>
-                                        <button onClick={() => {
-                                            if (confirm('Are you sure? This will delete ALL data from cloud!')) {
-                                                database.ref('members').remove();
-                                                database.ref('paidStatus').remove();
-                                                database.ref('invoices').remove();
-                                                alert('All data deleted from cloud!');
-                                            }
-                                        }} style={{ ...btnPrimary, background: 'var(--danger)' }}>
-                                            <i className="fas fa-trash"></i> Clear All
-                                        </button>
+                                        <button onClick={() => { if (confirm('Delete ALL data?')) { database.ref('members').remove(); database.ref('paidStatus').remove(); alert('All data deleted!'); } }} style={{ ...btnPrimary, background: 'var(--danger)' }}><i className="fas fa-trash"></i> Clear All</button>
                                     </div>
                                 </div>
                             </div>
                         )}
                     </div>
 
-                    {/* ================== ADD/EDIT MODAL ================== */}
                     {showModal && (
-                        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-                            <div style={{ ...cardStyle, width: '450px', maxHeight: '90vh', overflow: 'auto' }}>
-                                <h3 style={{ marginBottom: '20px', color: 'var(--primary)' }}>
-                                    {editingMember ? 'Edit Member' : 'Add New Member'}
-                                </h3>
+                        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '15px' }}>
+                            <div style={{ ...cardStyle, width: '100%', maxWidth: '450px', maxHeight: '90vh', overflow: 'auto' }}>
+                                <h3 style={{ marginBottom: '20px', color: 'var(--primary)' }}>{editingMember ? 'Edit Member' : 'Add New Member'}</h3>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                     <div>
-                                        <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Name *</label>
+                                        <label style={{ fontSize: '12px', color: 'var(--gray-600)', display: 'block', marginBottom: '4px' }}>Name *</label>
                                         <input placeholder="Member Name" value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} style={inputStyle} />
                                     </div>
                                     <div>
-                                        <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Phone</label>
+                                        <label style={{ fontSize: '12px', color: 'var(--gray-600)', display: 'block', marginBottom: '4px' }}>Phone</label>
                                         <input placeholder="Phone Number" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} style={inputStyle} />
                                     </div>
                                     <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '10px' }}>
                                         <div>
-                                            <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Amount *</label>
-                                            <input placeholder="Investment Amount" type="number" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} style={inputStyle} />
+                                            <label style={{ fontSize: '12px', color: 'var(--gray-600)', display: 'block', marginBottom: '4px' }}>Amount *</label>
+                                            <input placeholder="Amount" type="number" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} style={inputStyle} />
                                         </div>
                                         <div>
-                                            <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Currency</label>
+                                            <label style={{ fontSize: '12px', color: 'var(--gray-600)', display: 'block', marginBottom: '4px' }}>Currency</label>
                                             <select value={formData.currency} onChange={e => setFormData({...formData, currency: e.target.value})} style={inputStyle}>
                                                 <option value="LKR">LKR</option>
                                                 <option value="USD">USD</option>
@@ -1155,167 +636,52 @@
                                     </div>
                                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                                         <div>
-                                            <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Deposit Date *</label>
+                                            <label style={{ fontSize: '12px', color: 'var(--gray-600)', display: 'block', marginBottom: '4px' }}>Deposit Date *</label>
                                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '5px' }}>
-                                                <select 
-                                                    value={formData.depositDate ? formData.depositDate.split('-')[0] : ''} 
-                                                    onChange={e => {
-                                                        const parts = formData.depositDate ? formData.depositDate.split('-') : ['', '', ''];
-                                                        parts[0] = e.target.value;
-                                                        setFormData({...formData, depositDate: parts.join('-')});
-                                                    }} 
-                                                    style={{...inputStyle, padding: '10px 5px', fontSize: '13px'}}
-                                                >
+                                                <select value={formData.depositDate ? formData.depositDate.split('-')[0] : ''} onChange={e => { const parts = formData.depositDate ? formData.depositDate.split('-') : ['', '', '']; parts[0] = e.target.value; setFormData({...formData, depositDate: parts.join('-')}); }} style={{...inputStyle, padding: '10px 5px', fontSize: '14px'}}>
                                                     <option value="">Year</option>
-                                                    {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => (
-                                                        <option key={y} value={y}>{y}</option>
-                                                    ))}
+                                                    {[2024, 2025, 2026, 2027, 2028, 2029, 2030].map(y => <option key={y} value={y}>{y}</option>)}
                                                 </select>
-                                                <select 
-                                                    value={formData.depositDate ? formData.depositDate.split('-')[1] : ''} 
-                                                    onChange={e => {
-                                                        const parts = formData.depositDate ? formData.depositDate.split('-') : ['', '', ''];
-                                                        parts[1] = e.target.value;
-                                                        setFormData({...formData, depositDate: parts.join('-')});
-                                                    }} 
-                                                    style={{...inputStyle, padding: '10px 5px', fontSize: '13px'}}
-                                                >
+                                                <select value={formData.depositDate ? formData.depositDate.split('-')[1] : ''} onChange={e => { const parts = formData.depositDate ? formData.depositDate.split('-') : ['', '', '']; parts[1] = e.target.value; setFormData({...formData, depositDate: parts.join('-')}); }} style={{...inputStyle, padding: '10px 5px', fontSize: '14px'}}>
                                                     <option value="">Mon</option>
-                                                    {['01','02','03','04','05','06','07','08','09','10','11','12'].map(m => (
-                                                        <option key={m} value={m}>{m}</option>
-                                                    ))}
+                                                    {['01','02','03','04','05','06','07','08','09','10','11','12'].map(m => <option key={m} value={m}>{m}</option>)}
                                                 </select>
-                                                <select 
-                                                    value={formData.depositDate ? formData.depositDate.split('-')[2] : ''} 
-                                                    onChange={e => {
-                                                        const parts = formData.depositDate ? formData.depositDate.split('-') : ['', '', ''];
-                                                        parts[2] = e.target.value;
-                                                        setFormData({...formData, depositDate: parts.join('-')});
-                                                    }} 
-                                                    style={{...inputStyle, padding: '10px 5px', fontSize: '13px'}}
-                                                >
+                                                <select value={formData.depositDate ? formData.depositDate.split('-')[2] : ''} onChange={e => { const parts = formData.depositDate ? formData.depositDate.split('-') : ['', '', '']; parts[2] = e.target.value; setFormData({...formData, depositDate: parts.join('-')}); }} style={{...inputStyle, padding: '10px 5px', fontSize: '14px'}}>
                                                     <option value="">Day</option>
-                                                    {Array.from({length: 31}, (_, i) => String(i + 1).padStart(2, '0')).map(d => (
-                                                        <option key={d} value={d}>{d}</option>
-                                                    ))}
+                                                    {Array.from({length: 31}, (_, i) => String(i + 1).padStart(2, '0')).map(d => <option key={d} value={d}>{d}</option>)}
                                                 </select>
                                             </div>
                                         </div>
                                         <div>
-                                            <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Return %</label>
+                                            <label style={{ fontSize: '12px', color: 'var(--gray-600)', display: 'block', marginBottom: '4px' }}>Return %</label>
                                             <input type="number" value={formData.returnPct} onChange={e => setFormData({...formData, returnPct: Number(e.target.value)})} style={inputStyle} />
                                         </div>
                                     </div>
                                     <div>
-                                        <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Status</label>
+                                        <label style={{ fontSize: '12px', color: 'var(--gray-600)', display: 'block', marginBottom: '4px' }}>Status</label>
                                         <select value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})} style={inputStyle}>
                                             <option value="Active">Active</option>
                                             <option value="Inactive">Inactive</option>
                                         </select>
                                     </div>
                                     <div>
-                                        <label style={{ fontSize: '12px', color: 'var(--gray-600)', marginBottom: '4px', display: 'block' }}>Notes</label>
-                                        <input placeholder="Additional notes..." value={formData.notes || ''} onChange={e => setFormData({...formData, notes: e.target.value})} style={inputStyle} />
+                                        <label style={{ fontSize: '12px', color: 'var(--gray-600)', display: 'block', marginBottom: '4px' }}>Notes</label>
+                                        <input placeholder="Notes..." value={formData.notes || ''} onChange={e => setFormData({...formData, notes: e.target.value})} style={inputStyle} />
                                     </div>
                                     <div style={{ display: 'flex', gap: '10px', marginTop: '10px' }}>
-                                        <button onClick={() => setShowModal(false)} style={{ flex: 1, padding: '12px', border: '1px solid var(--gray-300)', background: 'white', borderRadius: '5px', cursor: 'pointer' }}>
-                                            Cancel
-                                        </button>
-                                        <button onClick={saveMember} style={{ ...btnPrimary, flex: 1 }}>
-                                            {editingMember ? 'Update' : 'Add Member'}
-                                        </button>
+                                        <button onClick={() => setShowModal(false)} style={{ flex: 1, padding: '12px', border: '1px solid var(--gray-300)', background: 'white', borderRadius: '5px', cursor: 'pointer' }}>Cancel</button>
+                                        <button onClick={saveMember} style={{ ...btnPrimary, flex: 1 }}>{editingMember ? 'Update' : 'Add Member'}</button>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* ================== INVOICE VIEW MODAL ================== */}
-                    {showInvoiceModal && selectedInvoice && (
-                        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '20px' }}>
-                            <div style={{ background: 'white', borderRadius: '10px', width: '100%', maxWidth: '500px', maxHeight: '90vh', overflow: 'auto' }}>
-                                {/* Header */}
-                                <div style={{ background: 'linear-gradient(135deg, #1a365d 0%, #2c5282 100%)', color: 'white', padding: '20px', textAlign: 'center', borderRadius: '10px 10px 0 0' }}>
-                                    <h1 style={{ margin: 0, fontSize: '22px' }}>🏆 KVAS Chanaka Jayanethra</h1>
-                                </div>
-                                
-                                {/* Invoice Info */}
-                                <div style={{ background: '#ffd700', color: '#1a365d', padding: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                    <div>
-                                        <strong style={{ fontSize: '18px' }}>INVOICE</strong>
-                                    </div>
-                                    <div style={{ textAlign: 'right' }}>
-                                        <div style={{ fontWeight: 'bold' }}>{selectedInvoice.invoiceNo}</div>
-                                        <div style={{ fontSize: '12px' }}>Date: {formatDate(new Date())}</div>
-                                    </div>
-                                </div>
-                                
-                                {/* Borrower Details */}
-                                <div style={{ padding: '15px', background: '#e3f2fd' }}>
-                                    <h3 style={{ margin: '0 0 10px 0', color: '#1a365d', fontSize: '14px' }}>👤 BORROWER DETAILS</h3>
-                                    <table style={{ width: '100%', fontSize: '14px' }}>
-                                        <tbody>
-                                            <tr><td style={{ padding: '5px 0', width: '40%' }}><strong>Name</strong></td><td>: {selectedInvoice.memberName}</td></tr>
-                                            <tr><td style={{ padding: '5px 0' }}><strong>Phone</strong></td><td>: {selectedInvoice.phone || 'N/A'}</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                                
-                                {/* Loan Details */}
-                                <div style={{ padding: '15px', background: '#e8f5e9' }}>
-                                    <h3 style={{ margin: '0 0 10px 0', color: '#1a365d', fontSize: '14px' }}>💰 LOAN DETAILS</h3>
-                                    <table style={{ width: '100%', fontSize: '14px' }}>
-                                        <tbody>
-                                            <tr><td style={{ padding: '5px 0', width: '40%' }}><strong>Borrowing Amount</strong></td><td>: {selectedInvoice.currency} {Number(selectedInvoice.amount).toLocaleString()}</td></tr>
-                                            <tr><td style={{ padding: '5px 0' }}><strong>Borrow Date</strong></td><td>: {selectedInvoice.borrowDate}</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                                
-                                {/* Contact */}
-                                <div style={{ padding: '15px', background: '#f5f5f5', textAlign: 'center' }}>
-                                    <p style={{ margin: 0, fontSize: '14px' }}>📞 Contact: <strong>077-1904395</strong></p>
-                                </div>
-                                
-                                {/* Signature */}
-                                <div style={{ padding: '20px', borderTop: '2px dashed #ccc' }}>
-                                    <p style={{ margin: 0, fontSize: '14px' }}>✍️ Signature: <strong style={{ fontFamily: 'cursive', fontSize: '20px' }}>Chanaka Jayanethra</strong></p>
-                                </div>
-                                
-                                {/* Action Buttons */}
-                                <div style={{ padding: '15px', display: 'flex', gap: '10px', borderTop: '1px solid #eee' }}>
-                                    <button onClick={() => downloadInvoicePDF(selectedInvoice)} style={{ flex: 1, padding: '12px', background: 'var(--danger)', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '14px' }}>
-                                        <i className="fas fa-file-pdf"></i> Download PDF
-                                    </button>
-                                    <button onClick={() => sendInvoiceWhatsApp(selectedInvoice)} style={{ flex: 1, padding: '12px', background: '#25d366', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '14px' }}>
-                                        <i className="fab fa-whatsapp"></i> WhatsApp
-                                    </button>
-                                    <button onClick={() => setShowInvoiceModal(false)} style={{ flex: 1, padding: '12px', background: 'var(--gray-600)', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '14px' }}>
-                                        Close
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* ================== MOBILE BOTTOM NAVIGATION ================== */}
                     <div className="mobile-nav">
-                        <div className={`mobile-nav-item ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
-                            <i className="fas fa-chart-pie"></i>
-                            Dashboard
-                        </div>
-                        <div className={`mobile-nav-item ${activeTab === 'members' ? 'active' : ''}`} onClick={() => setActiveTab('members')}>
-                            <i className="fas fa-users"></i>
-                            Members
-                        </div>
-                        <div className={`mobile-nav-item ${activeTab === 'invoices' ? 'active' : ''}`} onClick={() => setActiveTab('invoices')}>
-                            <i className="fas fa-file-invoice"></i>
-                            Invoices
-                        </div>
-                        <div className={`mobile-nav-item ${activeTab === 'payouts' ? 'active' : ''}`} onClick={() => setActiveTab('payouts')}>
-                            <i className="fas fa-calendar-check"></i>
-                            Payouts
-                        </div>
+                        <div className={'mobile-nav-item ' + (activeTab === 'dashboard' ? 'active' : '')} onClick={() => setActiveTab('dashboard')}><i className="fas fa-chart-pie"></i>Dashboard</div>
+                        <div className={'mobile-nav-item ' + (activeTab === 'members' ? 'active' : '')} onClick={() => setActiveTab('members')}><i className="fas fa-users"></i>Members</div>
+                        <div className={'mobile-nav-item ' + (activeTab === 'payouts' ? 'active' : '')} onClick={() => setActiveTab('payouts')}><i className="fas fa-calendar-check"></i>Payouts</div>
+                        <div className={'mobile-nav-item ' + (activeTab === 'card' ? 'active' : '')} onClick={() => setActiveTab('card')}><i className="fab fa-whatsapp"></i>Card</div>
                     </div>
                 </div>
             );
