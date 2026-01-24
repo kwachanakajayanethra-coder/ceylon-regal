@@ -132,6 +132,8 @@
             const [paidStatus, setPaidStatus] = useState({});
             const [payouts, setPayouts] = useState([]);
             const [showModal, setShowModal] = useState(false);
+            const [showBulkModal, setShowBulkModal] = useState(false);
+            const [bulkText, setBulkText] = useState('');
             const [editingMember, setEditingMember] = useState(null);
             const [selectedMember, setSelectedMember] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
@@ -297,6 +299,46 @@
             };
 
             const copyToClipboard = (text) => { navigator.clipboard.writeText(text); alert('✅ Copied!'); };
+
+            const bulkImportMembers = () => {
+                if (!bulkText.trim()) { alert('❌ Please paste member data!'); return; }
+                const lines = bulkText.trim().split('\n').filter(line => line.trim());
+                let addedCount = 0;
+                let currentId = Object.values(members || {}).reduce((max, m) => {
+                    const num = parseInt(m.id?.replace('M', '') || '0');
+                    return num > max ? num : max;
+                }, 0);
+
+                lines.forEach(line => {
+                    const parts = line.split(',').map(p => p.trim());
+                    if (parts.length >= 3) {
+                        currentId++;
+                        const newId = 'M' + String(currentId).padStart(3, '0');
+                        const memberData = {
+                            id: newId,
+                            name: parts[0] || '',
+                            phone: parts[1] || '',
+                            amount: Number(parts[2]) || 0,
+                            currency: (parts[3] || 'LKR').toUpperCase(),
+                            depositDate: parts[4] || formatDate(new Date()),
+                            returnPct: Number(parts[5]) || 20,
+                            status: 'Active',
+                            notes: parts[6] || '',
+                            createdAt: new Date().toISOString()
+                        };
+                        database.ref('members/' + newId).set(memberData);
+                        addedCount++;
+                    }
+                });
+
+                if (addedCount > 0) {
+                    alert('✅ ' + addedCount + ' members added successfully!');
+                    setBulkText('');
+                    setShowBulkModal(false);
+                } else {
+                    alert('❌ No valid data found. Check format!');
+                }
+            };
 
             const exportData = () => {
                 const data = { members, paidStatus, exportDate: new Date().toISOString() };
@@ -465,7 +507,10 @@
                             <div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '10px' }}>
                                     <h2 style={{ color: 'var(--primary)' }}>👥 Members</h2>
-                                    <button onClick={openAddModal} style={btnPrimary}><i className="fas fa-plus"></i> Add Member</button>
+                                    <div style={{ display: 'flex', gap: '10px' }}>
+                                        <button onClick={() => setShowBulkModal(true)} style={{ ...btnPrimary, background: 'var(--success)' }}><i className="fas fa-upload"></i> Bulk Import</button>
+                                        <button onClick={openAddModal} style={btnPrimary}><i className="fas fa-plus"></i> Add Member</button>
+                                    </div>
                                 </div>
                                 <div style={cardStyle}>
                                     <input placeholder="🔍 Search members..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ ...inputStyle, maxWidth: '300px', marginBottom: '15px' }} />
@@ -672,6 +717,33 @@
                                         <button onClick={() => setShowModal(false)} style={{ flex: 1, padding: '12px', border: '1px solid var(--gray-300)', background: 'white', borderRadius: '5px', cursor: 'pointer' }}>Cancel</button>
                                         <button onClick={saveMember} style={{ ...btnPrimary, flex: 1 }}>{editingMember ? 'Update' : 'Add Member'}</button>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {showBulkModal && (
+                        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '15px' }}>
+                            <div style={{ ...cardStyle, width: '100%', maxWidth: '550px', maxHeight: '90vh', overflow: 'auto' }}>
+                                <h3 style={{ marginBottom: '15px', color: 'var(--primary)' }}>📥 Bulk Import Members</h3>
+                                <div style={{ background: '#e8f5e9', padding: '15px', borderRadius: '8px', marginBottom: '15px', fontSize: '13px' }}>
+                                    <p style={{ fontWeight: 'bold', marginBottom: '8px' }}>📋 Format (comma separated):</p>
+                                    <code style={{ background: '#c8e6c9', padding: '8px', display: 'block', borderRadius: '4px', fontSize: '12px' }}>
+                                        Name, Phone, Amount, Currency, Date, Return%<br/>
+                                        Kamal, 0771234567, 500000, LKR, 2025-01-15, 20<br/>
+                                        Nimal, 0779876543, 1000000, LKR, 2025-02-01, 20
+                                    </code>
+                                    <p style={{ marginTop: '10px', color: 'var(--gray-600)' }}>💡 Currency & Return% optional (default: LKR, 20%)</p>
+                                </div>
+                                <textarea 
+                                    placeholder="Paste your member data here...&#10;&#10;Example:&#10;Kamal, 0771234567, 500000, LKR, 2025-01-15&#10;Nimal, 0779876543, 1000000, LKR, 2025-02-01"
+                                    value={bulkText}
+                                    onChange={e => setBulkText(e.target.value)}
+                                    style={{ ...inputStyle, height: '200px', resize: 'vertical', fontFamily: 'monospace', fontSize: '13px' }}
+                                />
+                                <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
+                                    <button onClick={() => { setBulkText(''); setShowBulkModal(false); }} style={{ flex: 1, padding: '12px', border: '1px solid var(--gray-300)', background: 'white', borderRadius: '5px', cursor: 'pointer' }}>Cancel</button>
+                                    <button onClick={bulkImportMembers} style={{ ...btnPrimary, flex: 1, background: 'var(--success)' }}><i className="fas fa-upload"></i> Import All</button>
                                 </div>
                             </div>
                         </div>
