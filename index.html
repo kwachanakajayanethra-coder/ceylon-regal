@@ -232,6 +232,27 @@
             };
 
             const memberArray = Object.values(members || {});
+            
+            // Check if member is expired (12 months complete)
+            const isExpired = (depositDate) => {
+                if (!depositDate) return false;
+                const expireDate = addMonths(new Date(depositDate), 12);
+                const today = new Date();
+                today.setHours(0, 0, 0, 0);
+                return expireDate < today;
+            };
+            
+            // Auto-update expired members to Inactive
+            useEffect(() => {
+                memberArray.forEach(member => {
+                    if (isExpired(member.depositDate) && member.status === 'Active') {
+                        database.ref('members/' + member.id).update({ status: 'Inactive' });
+                    }
+                });
+            }, [members]);
+            
+            const expiredMembers = memberArray.filter(m => isExpired(m.depositDate));
+            const activeMembers = memberArray.filter(m => m.status === 'Active');
             const totalLKR = memberArray.filter(m => m.currency === 'LKR').reduce((sum, m) => sum + Number(m.amount || 0), 0);
             const totalUSD = memberArray.filter(m => m.currency === 'USD').reduce((sum, m) => sum + Number(m.amount || 0), 0);
             const upcomingPayouts = payouts.filter(p => p.isUpcoming && p.status === 'Pending');
@@ -430,6 +451,8 @@
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px', marginBottom: '25px' }}>
                                     {[
                                         { label: 'Total Members', value: memberArray.length, color: 'var(--primary)', icon: 'fa-users' },
+                                        { label: 'Active Members', value: activeMembers.length, color: 'var(--success)', icon: 'fa-check-circle' },
+                                        { label: 'Expired (12M Done)', value: expiredMembers.length, color: 'var(--gray-600)', icon: 'fa-calendar-times' },
                                         { label: 'Total LKR', value: 'LKR ' + totalLKR.toLocaleString(), color: 'var(--success)', icon: 'fa-money-bill' },
                                         { label: 'Total USD', value: 'USD ' + totalUSD.toLocaleString(), color: 'var(--accent)', icon: 'fa-dollar-sign' },
                                         { label: 'Upcoming (7 Days)', value: upcomingPayouts.length, color: 'var(--warning)', icon: 'fa-clock' },
@@ -513,7 +536,14 @@
                                     </div>
                                 </div>
                                 <div style={cardStyle}>
-                                    <input placeholder="🔍 Search members..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ ...inputStyle, maxWidth: '300px', marginBottom: '15px' }} />
+                                    <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', flexWrap: 'wrap', alignItems: 'center' }}>
+                                        <input placeholder="🔍 Search members..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ ...inputStyle, maxWidth: '250px' }} />
+                                        <div style={{ display: 'flex', gap: '5px' }}>
+                                            <button onClick={() => setFilterStatus('all')} style={{ padding: '8px 15px', border: '1px solid var(--primary)', background: filterStatus === 'all' ? 'var(--primary)' : 'white', color: filterStatus === 'all' ? 'white' : 'var(--primary)', borderRadius: '5px', cursor: 'pointer', fontSize: '13px' }}>All ({memberArray.length})</button>
+                                            <button onClick={() => setFilterStatus('active')} style={{ padding: '8px 15px', border: '1px solid var(--success)', background: filterStatus === 'active' ? 'var(--success)' : 'white', color: filterStatus === 'active' ? 'white' : 'var(--success)', borderRadius: '5px', cursor: 'pointer', fontSize: '13px' }}>Active ({activeMembers.length})</button>
+                                            <button onClick={() => setFilterStatus('expired')} style={{ padding: '8px 15px', border: '1px solid var(--gray-600)', background: filterStatus === 'expired' ? 'var(--gray-600)' : 'white', color: filterStatus === 'expired' ? 'white' : 'var(--gray-600)', borderRadius: '5px', cursor: 'pointer', fontSize: '13px' }}>Expired ({expiredMembers.length})</button>
+                                        </div>
+                                    </div>
                                     <div style={{ overflowX: 'auto' }}>
                                         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '600px' }}>
                                             <thead><tr style={{ background: 'var(--primary)', color: 'white' }}>
@@ -522,17 +552,26 @@
                                                 <th style={{ padding: '12px', textAlign: 'left' }}>Phone</th>
                                                 <th style={{ padding: '12px', textAlign: 'left' }}>Amount</th>
                                                 <th style={{ padding: '12px', textAlign: 'left' }}>Deposit Date</th>
+                                                <th style={{ padding: '12px', textAlign: 'left' }}>Expire Date</th>
                                                 <th style={{ padding: '12px', textAlign: 'center' }}>Status</th>
                                                 <th style={{ padding: '12px', textAlign: 'center' }}>Actions</th>
                                             </tr></thead>
                                             <tbody>
-                                                {memberArray.filter(m => m.name?.toLowerCase().includes(searchTerm.toLowerCase()) || m.id.toLowerCase().includes(searchTerm.toLowerCase())).map((member, idx) => (
-                                                    <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)' }}>
+                                                {memberArray
+                                                    .filter(m => {
+                                                        const matchesSearch = m.name?.toLowerCase().includes(searchTerm.toLowerCase()) || m.id.toLowerCase().includes(searchTerm.toLowerCase());
+                                                        if (filterStatus === 'active') return matchesSearch && m.status === 'Active';
+                                                        if (filterStatus === 'expired') return matchesSearch && isExpired(m.depositDate);
+                                                        return matchesSearch;
+                                                    })
+                                                    .map((member, idx) => (
+                                                    <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)', background: isExpired(member.depositDate) ? '#f5f5f5' : 'white' }}>
                                                         <td style={{ padding: '12px', fontWeight: '600', color: 'var(--primary)' }}>{member.id}</td>
                                                         <td style={{ padding: '12px' }}>{member.name}</td>
                                                         <td style={{ padding: '12px' }}>{member.phone}</td>
                                                         <td style={{ padding: '12px', color: 'var(--success)', fontWeight: '600' }}>{formatCurrency(member.amount, member.currency)}</td>
                                                         <td style={{ padding: '12px' }}>{member.depositDate}</td>
+                                                        <td style={{ padding: '12px', color: isExpired(member.depositDate) ? 'var(--danger)' : 'var(--gray-600)' }}>{member.depositDate ? formatDate(addMonths(new Date(member.depositDate), 12)) : '-'}</td>
                                                         <td style={{ padding: '12px', textAlign: 'center' }}><span style={{ background: member.status === 'Active' ? 'var(--success)' : 'var(--gray-600)', color: 'white', padding: '3px 10px', borderRadius: '10px', fontSize: '12px' }}>{member.status}</span></td>
                                                         <td style={{ padding: '12px', textAlign: 'center' }}>
                                                             <button onClick={() => openEditModal(member)} style={{ background: 'var(--accent)', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px', fontSize: '12px' }}><i className="fas fa-edit"></i></button>
