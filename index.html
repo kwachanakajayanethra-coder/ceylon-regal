@@ -254,6 +254,28 @@
             
             const expiredMembers = memberArray.filter(m => isExpired(m.depositDate));
             const activeMembers = memberArray.filter(m => m.status === 'Active');
+            
+            // Detect duplicate members (same phone or similar name)
+            const phoneGroups = {};
+            memberArray.forEach(m => {
+                const phone = m.phone?.replace(/\D/g, '').slice(-9); // Get last 9 digits
+                if (phone) {
+                    if (!phoneGroups[phone]) phoneGroups[phone] = [];
+                    phoneGroups[phone].push(m);
+                }
+            });
+            
+            const duplicateMembers = memberArray.filter(m => {
+                const phone = m.phone?.replace(/\D/g, '').slice(-9);
+                return phone && phoneGroups[phone] && phoneGroups[phone].length > 1;
+            });
+            
+            // Count deposits per person
+            const getDepositCount = (member) => {
+                const phone = member.phone?.replace(/\D/g, '').slice(-9);
+                return phone && phoneGroups[phone] ? phoneGroups[phone].length : 1;
+            };
+            
             const totalLKR = memberArray.filter(m => m.currency === 'LKR').reduce((sum, m) => sum + Number(m.amount || 0), 0);
             const totalUSD = memberArray.filter(m => m.currency === 'USD').reduce((sum, m) => sum + Number(m.amount || 0), 0);
             const upcomingPayouts = payouts.filter(p => p.isUpcoming && p.status === 'Pending');
@@ -552,9 +574,10 @@
                                 <div style={cardStyle}>
                                     <div style={{ display: 'flex', gap: '10px', marginBottom: '15px', flexWrap: 'wrap', alignItems: 'center' }}>
                                         <input placeholder="🔍 Search members..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ ...inputStyle, maxWidth: '250px' }} />
-                                        <div style={{ display: 'flex', gap: '5px' }}>
+                                        <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap' }}>
                                             <button onClick={() => setFilterStatus('all')} style={{ padding: '8px 15px', border: '1px solid var(--primary)', background: filterStatus === 'all' ? 'var(--primary)' : 'white', color: filterStatus === 'all' ? 'white' : 'var(--primary)', borderRadius: '5px', cursor: 'pointer', fontSize: '13px' }}>All ({memberArray.length})</button>
                                             <button onClick={() => setFilterStatus('active')} style={{ padding: '8px 15px', border: '1px solid var(--success)', background: filterStatus === 'active' ? 'var(--success)' : 'white', color: filterStatus === 'active' ? 'white' : 'var(--success)', borderRadius: '5px', cursor: 'pointer', fontSize: '13px' }}>Active ({activeMembers.length})</button>
+                                            <button onClick={() => setFilterStatus('duplicates')} style={{ padding: '8px 15px', border: '1px solid var(--warning)', background: filterStatus === 'duplicates' ? 'var(--warning)' : 'white', color: filterStatus === 'duplicates' ? 'white' : 'var(--warning)', borderRadius: '5px', cursor: 'pointer', fontSize: '13px' }}>Multi-Deposit ({duplicateMembers.length})</button>
                                             <button onClick={() => setFilterStatus('expired')} style={{ padding: '8px 15px', border: '1px solid var(--gray-600)', background: filterStatus === 'expired' ? 'var(--gray-600)' : 'white', color: filterStatus === 'expired' ? 'white' : 'var(--gray-600)', borderRadius: '5px', cursor: 'pointer', fontSize: '13px' }}>Expired ({expiredMembers.length})</button>
                                         </div>
                                     </div>
@@ -564,6 +587,7 @@
                                                 <th style={{ padding: '12px', textAlign: 'left' }}>ID</th>
                                                 <th style={{ padding: '12px', textAlign: 'left' }}>Name</th>
                                                 <th style={{ padding: '12px', textAlign: 'left' }}>Phone</th>
+                                                <th style={{ padding: '12px', textAlign: 'center' }}>Deposits</th>
                                                 <th style={{ padding: '12px', textAlign: 'left' }}>Amount</th>
                                                 <th style={{ padding: '12px', textAlign: 'left' }}>Deposit Date</th>
                                                 <th style={{ padding: '12px', textAlign: 'left' }}>Expire Date</th>
@@ -573,16 +597,36 @@
                                             <tbody>
                                                 {memberArray
                                                     .filter(m => {
-                                                        const matchesSearch = m.name?.toLowerCase().includes(searchTerm.toLowerCase()) || m.id.toLowerCase().includes(searchTerm.toLowerCase());
+                                                        const matchesSearch = m.name?.toLowerCase().includes(searchTerm.toLowerCase()) || m.id.toLowerCase().includes(searchTerm.toLowerCase()) || m.phone?.includes(searchTerm);
                                                         if (filterStatus === 'active') return matchesSearch && m.status === 'Active';
                                                         if (filterStatus === 'expired') return matchesSearch && isExpired(m.depositDate);
+                                                        if (filterStatus === 'duplicates') {
+                                                            const phone = m.phone?.replace(/\D/g, '').slice(-9);
+                                                            return matchesSearch && phone && phoneGroups[phone] && phoneGroups[phone].length > 1;
+                                                        }
                                                         return matchesSearch;
                                                     })
-                                                    .map((member, idx) => (
-                                                    <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)', background: isExpired(member.depositDate) ? '#f5f5f5' : 'white' }}>
+                                                    .sort((a, b) => {
+                                                        if (filterStatus === 'duplicates') {
+                                                            const phoneA = a.phone?.replace(/\D/g, '').slice(-9);
+                                                            const phoneB = b.phone?.replace(/\D/g, '').slice(-9);
+                                                            if (phoneA !== phoneB) return phoneA.localeCompare(phoneB);
+                                                        }
+                                                        return a.id.localeCompare(b.id);
+                                                    })
+                                                    .map((member, idx) => {
+                                                        const depositCount = getDepositCount(member);
+                                                        const isDuplicate = depositCount > 1;
+                                                        return (
+                                                    <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)', background: isExpired(member.depositDate) ? '#f5f5f5' : isDuplicate && filterStatus === 'duplicates' ? '#fff9e6' : 'white' }}>
                                                         <td style={{ padding: '12px', fontWeight: '600', color: 'var(--primary)' }}>{member.id}</td>
                                                         <td style={{ padding: '12px' }}>{member.name}</td>
                                                         <td style={{ padding: '12px' }}>{member.phone}</td>
+                                                        <td style={{ padding: '12px', textAlign: 'center' }}>
+                                                            <span style={{ background: depositCount > 1 ? 'var(--warning)' : 'var(--gray-300)', color: depositCount > 1 ? 'white' : 'var(--gray-600)', padding: '3px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 'bold' }}>
+                                                                {depositCount}x
+                                                            </span>
+                                                        </td>
                                                         <td style={{ padding: '12px', color: 'var(--success)', fontWeight: '600' }}>{formatCurrency(member.amount, member.currency)}</td>
                                                         <td style={{ padding: '12px' }}>{member.depositDate}</td>
                                                         <td style={{ padding: '12px', color: isExpired(member.depositDate) ? 'var(--danger)' : 'var(--gray-600)' }}>{member.depositDate ? formatDate(addMonths(new Date(member.depositDate), 12)) : '-'}</td>
@@ -592,7 +636,8 @@
                                                             <button onClick={() => deleteMember(member.id)} style={{ background: 'var(--danger)', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}><i className="fas fa-trash"></i></button>
                                                         </td>
                                                     </tr>
-                                                ))}
+                                                    );
+                                                })}
                                             </tbody>
                                         </table>
                                     </div>
