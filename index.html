@@ -589,6 +589,7 @@
                                                 <th style={{ padding: '12px', textAlign: 'left' }}>Phone</th>
                                                 <th style={{ padding: '12px', textAlign: 'center' }}>Deposits</th>
                                                 <th style={{ padding: '12px', textAlign: 'left' }}>Amount</th>
+                                                <th style={{ padding: '12px', textAlign: 'left' }}>Monthly (20%)</th>
                                                 <th style={{ padding: '12px', textAlign: 'left' }}>Deposit Date</th>
                                                 <th style={{ padding: '12px', textAlign: 'left' }}>Expire Date</th>
                                                 <th style={{ padding: '12px', textAlign: 'center' }}>Status</th>
@@ -617,17 +618,24 @@
                                                     .map((member, idx) => {
                                                         const depositCount = getDepositCount(member);
                                                         const isDuplicate = depositCount > 1;
+                                                        const monthlyReturn = member.amount * (member.returnPct || 20) / 100;
+                                                        let badgeColor, badgeTextColor;
+                                                        if (depositCount === 1) { badgeColor = 'var(--gray-300)'; badgeTextColor = 'var(--gray-600)'; }
+                                                        else if (depositCount === 2) { badgeColor = '#ffd700'; badgeTextColor = 'white'; }
+                                                        else if (depositCount === 3) { badgeColor = '#ff8c00'; badgeTextColor = 'white'; }
+                                                        else { badgeColor = 'var(--accent)'; badgeTextColor = 'white'; }
                                                         return (
                                                     <tr key={idx} style={{ borderBottom: '1px solid var(--gray-200)', background: isExpired(member.depositDate) ? '#f5f5f5' : isDuplicate && filterStatus === 'duplicates' ? '#fff9e6' : 'white' }}>
                                                         <td style={{ padding: '12px', fontWeight: '600', color: 'var(--primary)' }}>{member.id}</td>
                                                         <td style={{ padding: '12px' }}>{member.name}</td>
                                                         <td style={{ padding: '12px' }}>{member.phone}</td>
                                                         <td style={{ padding: '12px', textAlign: 'center' }}>
-                                                            <span style={{ background: depositCount > 1 ? 'var(--warning)' : 'var(--gray-300)', color: depositCount > 1 ? 'white' : 'var(--gray-600)', padding: '3px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 'bold' }}>
+                                                            <span style={{ background: badgeColor, color: badgeTextColor, padding: '3px 8px', borderRadius: '10px', fontSize: '12px', fontWeight: 'bold' }}>
                                                                 {depositCount}x
                                                             </span>
                                                         </td>
                                                         <td style={{ padding: '12px', color: 'var(--success)', fontWeight: '600' }}>{formatCurrency(member.amount, member.currency)}</td>
+                                                        <td style={{ padding: '12px', color: 'var(--accent)', fontWeight: '600' }}>{formatCurrency(monthlyReturn, member.currency)}</td>
                                                         <td style={{ padding: '12px' }}>{member.depositDate}</td>
                                                         <td style={{ padding: '12px', color: isExpired(member.depositDate) ? 'var(--danger)' : 'var(--gray-600)' }}>{member.depositDate ? formatDate(addMonths(new Date(member.depositDate), 12)) : '-'}</td>
                                                         <td style={{ padding: '12px', textAlign: 'center' }}><span style={{ background: member.status === 'Active' ? 'var(--success)' : 'var(--gray-600)', color: 'white', padding: '3px 10px', borderRadius: '10px', fontSize: '12px' }}>{member.status}</span></td>
