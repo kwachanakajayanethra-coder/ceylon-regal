@@ -10,6 +10,8 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f4f8; }
@@ -126,6 +128,24 @@
             return 'M' + String(maxId + 1).padStart(3, '0');
         };
 
+        // Company logo for invoices
+        const COMPANY_LOGO_DATA_URI = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABIMDRANCxIQDhAUExIVGywdGxgYGzYnKSAsQDlEQz85Pj1HUGZXR0thTT0+WXlaYWltcnNyRVV9hnxvhWZwcm7/2wBDARMUFBsXGzQdHTRuST5Jbm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm5ubm7/wgARCAB4AHgDASIAAhEBAxEB/8QAGQABAAMBAQAAAAAAAAAAAAAAAAIDBAEF/8QAFwEBAQEBAAAAAAAAAAAAAAAAAAECA//aAAwDAQACEAMQAAAB8YdMAADpwAAAAABfzNq9PJu5b8nmmHXFK+igsAAAnt8/Vz1ptyc5bvhCFlEDvzCgALuX5MavW5cpysiuW+u/Uh2fM2mvZj3kNQCyVOzGqo3Szc8raLHY6zItz12JrIUA05mbp7luzZK1Xxq7FtdLUDUAAASiizkC2cgAsAAAAAAAAAA//8QAJhAAAgEDAwQCAwEAAAAAAAAAAQIDABESEyEiBCAgMzJQFCMxQ//aAAgBAQABBQL6S16sv4treNFDh48WVzCf82czFEyZ1CDwK2LaIJZEJ44qiA6IBZsm8McgVdetetepJAy9+FlsuLIqhUVnCc1RWWigSinAxfrAGPZPuKkICN8pjxi9a/LqPbHtAHwp0ATsDkC7MC7UcmLsxCFwCxtm2JLPTMTWRx7YvTJtFuenVcpiS7vlla8XT+4/3uQqIiweO6mEMI2OBYsrTRyEOhVJrL4cBWO9ruADWHj3Ncr8r8qufpP/xAAdEQACAQQDAAAAAAAAAAAAAAAAARECECAwIUBB/9oACAEDAQE/AdUFJGSJRKxYz23A7rTN56f/xAAfEQADAAIBBQEAAAAAAAAAAAAAARECISADEjAxQRD/2gAIAQIBAT8B8XcrDqNl1sTvHNP4dmRM+OO1RVorlG9wrMXf3LWynvQ4j7ODVIkaIvR2855P/8QALBAAAgECAwYFBQEAAAAAAAAAAAERAiESMUEiMDJRYXEQECBCgVBSkaGxwf/aAAgBAQAGPwL6JY+C+7a9xEplS1JtzKVqRKQl7tymY52Xcu0yP8M0jHOyrjb3V/4ZP8nD+zJ/kt/Nxiq1yJTfYpcu5hxdhp2gqcu3ltTPJGKlyhV03G+Xpoayjy8OVNiUUvWpXPE7Ceh3K5KeUDqp4X6Y05FqbdERUlboTH6EqlkbNNn0MOXwXuup25EPQjT1eIU01cRTfUVNV4XltK5VR9otxUm7s2uJFNOK6E6XPMlVQYpsbVViZsN4p3KuQyB9D4neSSZEfRP/xAAmEAEAAgICAgEEAgMAAAAAAAABABEhMUFRYXEwECCBoUDwUJHx/9oACAEBAAE/If41NXWPmFoX1PxMvzFaE9/HrIMnmUec5JUMdLmdPhvF1Khhpct8ZyxyZWXx8LE8TQnA1LEp/ep3v2liGf3uZEOBuNuT8VN2OhHr+Wb/APWHf8M0XZefgAFUNBtimSDlR2Yd6mWmdqgZsWt6lQDfW/oUXtz0Q/DLeyVIU5Oo5y39r1cyml6lAvtizxW2S+pVry+hYo0S4UTwBIrOjg9xW9rM7yxHbprx9teU9hZGlgMboAxXJ64gQhwxURlmza4+wBeikAIDhpMBVnAalAIaaqAK+Wa+6yB4nWVv0RKMGW2o6Gv+6XzN3gJZZBdzSc5nnufqM2+/vrG6cQ4Ktb2RoEJemXnJAwMu6TUeunCyE1O15nHPdYm08QD8NFmt1+4ALIrUCBWlqGWXlqUQpyr4yqc4qZXDfqAKhvepyyyVqJlsYr/Cf//aAAwDAQACAAMAAAAQBFNJNJBBBVz450BBB9faefpBBg/KiapBB8+5JurBB2+IH5BBBVvQkpBBBBBBhBBB/8QAHREAAwEAAwADAAAAAAAAAAAAAAERISAwMRBBUf/aAAgBAwEBPxDqqURaPWDUzi68ZIcT3hhwhMiUCWUn2EmfNPBptyjq0SbbH5eCcEzK/Cu0/E5UvZ//xAAiEQEAAgECBgMAAAAAAAAAAAABABEhMUEQIDBRcZFhgbH/2gAIAQIBAT8Q6XkIhO14+YVtiwBZy6jXFQG/ZC7O8CijkTcY9R3l31fuYlYyobPvEyU40OEAAhvUEwB3iAxCtLSBXEhTGpne5Wq4mW8TVd81dV//xAAoEAEAAgEDAgYCAwEAAAAAAAABESEAMUFRYXEgMKGxwfCR4UBQgdH/2gAIAQEAAT8Q/jb2tExU+c0igTAnGpW5++axoFG4EeWS90zQ3HEC0mShmLwUoUFgnxk0/lw97xWAWVCvxipaTJSzFZNtaZobB5OoS579MTQyQrquF4zn9qTL8s5rmatI0jSKjOP+rMnwwfCWR4XA8ZqUM9unlAjVmJDHd0/GDuu6ewZ1H364Oy7r6I5ClCTAMdzX8eRo60chz0MexAAkw7jiQxHA165FBBGFdTDw5IqaQWDf7zka0aQpm9YCsHQU6rvkYySAQvXGUVJYv9cDpgoCGXwjUDATQTbBACmp4zvxpHHGKgJbbqcQMAKcNPvbPTfnIAJWfBOKe0DkjC2pz7/UYXSgfQYFIl+Smzws2TbiIDBspWpy75HqSA6MLDwAkCDtgIAQbgxLGoaTHMOFAp64A1MXweBwcC0FX/BhTKYBMHGBO2LqPEXu2hMYlTOoW2VOELpZynnCNgKzMImJ31x4FPoHAZFCIIFsETla0zxq/acaQuvsY1Vtl7+MTkCEmI5rND7XFOJyfEKmK56YggjKEE0gnpkZKyPnorXIFFDIlQrTrjvNyRCdsaA3FKb2iMTSFCmpdpXyUzQvkNm17ZKaIAmLj/uXzQKWXGJI0NBpIc9cJPxgSoFr08sEZQABsYhGSiLw0wEWWDyziCxG3XATIKIhjWP6T//Z';
+
+        // Format money for invoice display
+        const formatMoney = (amount) => {
+            return Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
+
+        // Generate invoice number
+        const generateInvoiceNumber = () => {
+            const date = new Date();
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const time = String(date.getHours()).padStart(2, '0') + String(date.getMinutes()).padStart(2, '0');
+            return `INV-${year}${month}${day}-${time}`;
+        };
+
         const App = () => {
             const [activeTab, setActiveTab] = useState('dashboard');
             const [members, setMembers] = useState({});
@@ -133,9 +153,11 @@
             const [payouts, setPayouts] = useState([]);
             const [showModal, setShowModal] = useState(false);
             const [showBulkModal, setShowBulkModal] = useState(false);
+            const [showInvoiceModal, setShowInvoiceModal] = useState(false);
             const [bulkText, setBulkText] = useState('');
             const [editingMember, setEditingMember] = useState(null);
             const [selectedMember, setSelectedMember] = useState(null);
+            const [selectedInvoiceMember, setSelectedInvoiceMember] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
             const [filterStatus, setFilterStatus] = useState('all');
             const [showAllOverdue, setShowAllOverdue] = useState(false);
@@ -408,6 +430,197 @@
                 }
             };
 
+            const generateInvoicePDF = (member) => {
+                if (!member) {
+                    alert('❌ Please select a member');
+                    return;
+                }
+                if (!window.jspdf) {
+                    alert('❌ PDF library not loaded. Please refresh the page.');
+                    return;
+                }
+
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4', compress: true });
+
+                const company = {
+                    name: 'CEYLON REGAL (PVT) LTD',
+                    regNo: 'PV 00348112',
+                    phone: '077 1904395'
+                };
+
+                const invoiceNo = generateInvoiceNumber();
+                const invoiceDate = formatDate(new Date());
+                const amount = Number(member.amount || 0);
+                const returnPct = Number(member.returnPct || 20);
+                const maturityDate = member.depositDate ? formatDate(addMonths(new Date(member.depositDate), 12)) : '-';
+
+                // Page background
+                doc.setFillColor(252, 251, 247);
+                doc.rect(0, 0, 210, 297, 'F');
+
+                // Header
+                doc.setFillColor(5, 20, 56);
+                doc.rect(0, 0, 210, 48, 'F');
+                doc.setFillColor(212, 175, 55);
+                doc.rect(0, 48, 210, 2.2, 'F');
+
+                try {
+                    doc.addImage(COMPANY_LOGO_DATA_URI, 'JPEG', 14, 8, 20, 20);
+                } catch (e) {
+                    console.log('Logo add failed', e);
+                }
+
+                doc.setTextColor(255, 255, 255);
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(18);
+                doc.text(company.name, 40, 16);
+
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(10);
+                doc.text(company.regNo, 40, 23);
+                doc.text(company.phone, 40, 29);
+
+                doc.setFont('times', 'bold');
+                doc.setFontSize(26);
+                doc.text('INVOICE', 196, 17, { align: 'right' });
+
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(10);
+                doc.text(`Invoice No: ${invoiceNo}`, 196, 24, { align: 'right' });
+                doc.text(`Date: ${invoiceDate}`, 196, 30, { align: 'right' });
+
+                doc.setDrawColor(212, 175, 55);
+                doc.setLineWidth(0.8);
+                doc.line(14, 55, 196, 55);
+
+                // Bill to card
+                doc.setFillColor(255, 255, 255);
+                doc.roundedRect(14, 62, 88, 42, 3, 3, 'F');
+                doc.setDrawColor(225, 232, 240);
+                doc.setLineWidth(0.2);
+                doc.roundedRect(14, 62, 88, 42, 3, 3, 'S');
+
+                doc.setTextColor(8, 27, 74);
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(11);
+                doc.text('BILL TO', 19, 72);
+
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(10);
+                doc.text(`Name: ${member.name || '-'}`, 19, 81);
+                doc.text(`Phone: ${member.phone || '-'}`, 19, 88);
+                doc.text(`Customer ID: ${member.id || '-'}`, 19, 95);
+
+                // Plan details card
+                doc.setFillColor(255, 255, 255);
+                doc.roundedRect(108, 62, 88, 42, 3, 3, 'F');
+                doc.roundedRect(108, 62, 88, 42, 3, 3, 'S');
+
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(11);
+                doc.text('PLAN DETAILS', 113, 72);
+
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(10);
+                doc.text(`Currency: ${member.currency || 'LKR'}`, 113, 81);
+                doc.text(`Return %: ${returnPct}%`, 113, 88);
+                doc.text(`Deposit Date: ${member.depositDate || '-'}`, 113, 95);
+                doc.text(`Maturity Date: ${maturityDate}`, 113, 102);
+
+                // Main invoice table
+                doc.autoTable({
+                    startY: 118,
+                    head: [['Ref No.', 'Description', 'Qty', 'Rate', 'Amount']],
+                    body: [[
+                        member.id || '-',
+                        'Customer Deposit',
+                        '1',
+                        `${member.currency || 'LKR'} ${formatMoney(amount)}`,
+                        `${member.currency || 'LKR'} ${formatMoney(amount)}`
+                    ]],
+                    theme: 'grid',
+                    headStyles: {
+                        fillColor: [5, 20, 56],
+                        textColor: [255, 255, 255],
+                        fontStyle: 'bold',
+                        halign: 'center'
+                    },
+                    styles: {
+                        fontSize: 10,
+                        cellPadding: 4,
+                        textColor: [45, 55, 72],
+                        lineColor: [226, 232, 240],
+                        lineWidth: 0.2
+                    },
+                    bodyStyles: {
+                        fillColor: [255, 255, 255]
+                    },
+                    columnStyles: {
+                        2: { halign: 'center' },
+                        3: { halign: 'right' },
+                        4: { halign: 'right' }
+                    }
+                });
+
+                const finalY = doc.lastAutoTable.finalY + 12;
+
+                // Summary card
+                doc.setFillColor(255, 253, 245);
+                doc.roundedRect(118, finalY, 78, 30, 3, 3, 'F');
+                doc.setDrawColor(212, 175, 55);
+                doc.roundedRect(118, finalY, 78, 30, 3, 3, 'S');
+
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(11);
+                doc.text('SUMMARY', 122, finalY + 8);
+
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(10);
+                doc.text('Deposit Amount:', 122, finalY + 17);
+                doc.text(`${member.currency || 'LKR'} ${formatMoney(amount)}`, 192, finalY + 17, { align: 'right' });
+
+                doc.setFont('helvetica', 'bold');
+                doc.text('Maturity Date:', 122, finalY + 25);
+                doc.text(`${maturityDate}`, 192, finalY + 25, { align: 'right' });
+
+                // Notes
+                doc.setTextColor(45, 55, 72);
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(11);
+                doc.text('Notes', 14, finalY + 10);
+
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(9);
+                const noteText = [
+                    `This invoice is issued for customer record ${member.id || '-'}.`,
+                    `Monthly return: ${returnPct}% (${member.currency || 'LKR'} ${formatMoney(amount * returnPct / 100)}).`,
+                    `Thank you for doing business with Ceylon Regal (Pvt) Ltd.`
+                ];
+                doc.text(noteText, 14, finalY + 18);
+
+                // Signature
+                doc.setDrawColor(212, 175, 55);
+                doc.setLineWidth(0.35);
+                doc.line(138, 264, 192, 264);
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(9);
+                doc.text('Authorized Signature', 165, 270, { align: 'center' });
+                doc.text('Chanaka Jayanethra', 165, 275, { align: 'center' });
+
+                // Footer
+                doc.setFillColor(5, 20, 56);
+                doc.rect(0, 285, 210, 12, 'F');
+                doc.setTextColor(255, 255, 255);
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(8);
+                doc.text('Ceylon Regal (Pvt) Ltd | Contact: 077 1904395', 105, 292, { align: 'center' });
+
+                // Save PDF
+                doc.save(`Invoice_${member.id}_${invoiceNo}.pdf`);
+                alert('✅ Invoice downloaded successfully!');
+            };
+
             const filteredPayouts = payouts.filter(p => {
                 const matchesSearch = p.memberName?.toLowerCase().includes(searchTerm.toLowerCase()) || p.memberId.toLowerCase().includes(searchTerm.toLowerCase());
                 if (filterStatus === 'upcoming') return matchesSearch && p.isUpcoming && p.status === 'Pending';
@@ -495,7 +708,25 @@
                                         </button>
                                     </div>
                                     {upcomingPayouts.length > 0 ? (
-                                        <div style={{ overflowX: 'auto' }}>
+                                        <div>
+                                            <div style={{ background: 'var(--warning-light, #fffbe6)', padding: '12px', borderRadius: '5px', marginBottom: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                                                <strong style={{ color: 'var(--warning)', fontSize: '14px' }}>💰 Total Upcoming Amount:</strong>
+                                                <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                                                    {(() => {
+                                                        const totals = upcomingPayouts.reduce((acc, p) => {
+                                                            if (!acc[p.currency]) acc[p.currency] = 0;
+                                                            acc[p.currency] += p.amount;
+                                                            return acc;
+                                                        }, {});
+                                                        return Object.entries(totals).map(([currency, amount]) => (
+                                                            <span key={currency} style={{ background: 'white', padding: '6px 12px', borderRadius: '4px', fontSize: '16px', fontWeight: 'bold', color: 'var(--warning)' }}>
+                                                                {currency} {amount.toLocaleString()}
+                                                            </span>
+                                                        ));
+                                                    })()}
+                                                </div>
+                                            </div>
+                                            <div style={{ overflowX: 'auto' }}>
                                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                                 <thead><tr style={{ background: 'var(--warning)', color: 'white' }}>
                                                     <th style={{ padding: '10px', textAlign: 'left' }}>Member</th>
@@ -517,6 +748,7 @@
                                                 </tbody>
                                             </table>
                                         </div>
+                                        </div>
                                     ) : <p style={{ color: 'var(--gray-600)', textAlign: 'center', padding: '20px' }}>✅ No upcoming payouts in next 7 days!</p>}
                                 </div>
                                 {overduePayouts.length > 0 && (
@@ -529,9 +761,26 @@
                                                 </button>
                                             )}
                                         </div>
-                                        <p style={{ color: 'var(--gray-600)', fontSize: '13px', marginBottom: '15px' }}>
+                                        <p style={{ color: 'var(--gray-600)', fontSize: '13px', marginBottom: '10px' }}>
                                             Showing {showAllOverdue ? overduePayouts.length : Math.min(10, overduePayouts.length)} of {overduePayouts.length} overdue payments
                                         </p>
+                                        <div style={{ background: 'var(--danger-light, #fee)', padding: '12px', borderRadius: '5px', marginBottom: '15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                                            <strong style={{ color: 'var(--danger)', fontSize: '14px' }}>💰 Total Overdue Amount:</strong>
+                                            <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
+                                                {(() => {
+                                                    const totals = overduePayouts.reduce((acc, p) => {
+                                                        if (!acc[p.currency]) acc[p.currency] = 0;
+                                                        acc[p.currency] += p.amount;
+                                                        return acc;
+                                                    }, {});
+                                                    return Object.entries(totals).map(([currency, amount]) => (
+                                                        <span key={currency} style={{ background: 'white', padding: '6px 12px', borderRadius: '4px', fontSize: '16px', fontWeight: 'bold', color: 'var(--danger)' }}>
+                                                            {currency} {amount.toLocaleString()}
+                                                        </span>
+                                                    ));
+                                                })()}
+                                            </div>
+                                        </div>
                                         <div style={{ overflowX: 'auto' }}>
                                             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                                                 <thead><tr style={{ background: 'var(--danger)', color: 'white' }}>
@@ -640,6 +889,7 @@
                                                         <td style={{ padding: '12px', color: isExpired(member.depositDate) ? 'var(--danger)' : 'var(--gray-600)' }}>{member.depositDate ? formatDate(addMonths(new Date(member.depositDate), 12)) : '-'}</td>
                                                         <td style={{ padding: '12px', textAlign: 'center' }}><span style={{ background: member.status === 'Active' ? 'var(--success)' : 'var(--gray-600)', color: 'white', padding: '3px 10px', borderRadius: '10px', fontSize: '12px' }}>{member.status}</span></td>
                                                         <td style={{ padding: '12px', textAlign: 'center' }}>
+                                                            <button onClick={() => generateInvoicePDF(member)} style={{ background: '#4CAF50', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px', fontSize: '12px' }} title="Generate Invoice"><i className="fas fa-file-invoice"></i></button>
                                                             <button onClick={() => openEditModal(member)} style={{ background: 'var(--accent)', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', marginRight: '5px', fontSize: '12px' }}><i className="fas fa-edit"></i></button>
                                                             <button onClick={() => deleteMember(member.id)} style={{ background: 'var(--danger)', color: 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}><i className="fas fa-trash"></i></button>
                                                         </td>
